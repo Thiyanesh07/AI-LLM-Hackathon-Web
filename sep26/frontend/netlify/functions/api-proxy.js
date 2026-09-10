@@ -1,6 +1,3 @@
-const APPS_SCRIPT_WEB_APP_URL =
-  process.env.APPS_SCRIPT_WEB_APP_URL || "";
-
 const ACTION_MAP = {
   "/register-team": "REGISTER_TEAM",
   "/domains": "GET_DOMAINS",
@@ -29,7 +26,7 @@ const ACTION_MAP = {
   "/admin/open-selection": "ADMIN_OPEN_SELECTION"
 };
 
-exports.handler = async function (event) {
+export async function handler(event) {
   if (event.httpMethod === "OPTIONS") {
     return {
       statusCode: 204,
@@ -86,8 +83,7 @@ exports.handler = async function (event) {
       payload.action = ACTION_MAP[subPath];
     }
 
-    const appsScriptUrl =
-      process.env.APPS_SCRIPT_WEB_APP_URL || APPS_SCRIPT_WEB_APP_URL;
+    const appsScriptUrl = process.env.APPS_SCRIPT_WEB_APP_URL;
 
     if (!appsScriptUrl) {
       return {
@@ -99,8 +95,7 @@ exports.handler = async function (event) {
         body: JSON.stringify({
           success: false,
           code: "MISSING_BACKEND_URL",
-          error:
-            "APPS_SCRIPT_WEB_APP_URL environment variable is not configured."
+          error: "APPS_SCRIPT_WEB_APP_URL environment variable is not configured in Netlify."
         })
       };
     }
@@ -148,4 +143,4 @@ exports.handler = async function (event) {
       })
     };
   }
-};
+}
