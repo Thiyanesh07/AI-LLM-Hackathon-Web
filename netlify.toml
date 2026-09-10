@@ -2,7 +2,7 @@
   base = "sep26/frontend"
   command = "npm run build"
   publish = "dist"
-  functions = "netlify/functions"
+  functions = "sep26/frontend/netlify/functions"
 
 [[redirects]]
   from = "/api/*"
