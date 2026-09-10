@@ -1,145 +1,141 @@
 import * as localMockApi from "./localMockApi";
 
-const useLocalMock = import.meta.env.DEV;
+const useLocalMock = import.meta.env.VITE_USE_MOCK === "true";
 
-function getAppsScriptRunner() {
-  const runner = window.google && window.google.script && window.google.script.run;
-
-  if (!runner) {
-    const error = new Error(
-      "Apps Script communication is available only when served by Apps Script HTML Service."
-    );
-    error.code = "APPS_SCRIPT_UNAVAILABLE";
-    throw error;
+async function postToProxy(endpoint, action, idToken, data) {
+  if (useLocalMock) {
+    if (typeof localMockApi[action] === "function") {
+      return localMockApi[action](idToken, data);
+    }
   }
 
-  return runner;
-}
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        action,
+        idToken,
+        data
+      })
+    });
 
-function callAppsScript(functionName, ...args) {
-  return new Promise((resolve, reject) => {
-    let runner;
-
-    try {
-      runner = getAppsScriptRunner();
-    } catch (error) {
-      reject(error);
-      return;
+    if (!response.ok) {
+      const text = await response.text();
+      let parsed = {};
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        // Ignored
+      }
+      return {
+        success: false,
+        code: parsed.code || "HTTP_ERROR",
+        error: parsed.error || `HTTP ${response.status}: ${response.statusText}`
+      };
     }
 
-    runner
-      .withSuccessHandler(resolve)
-      .withFailureHandler((error) => {
-        const transportError = new Error(
-          error && error.message
-            ? error.message
-            : "Unable to reach the Apps Script backend."
-        );
-        transportError.code = "APPS_SCRIPT_REQUEST_FAILED";
-        reject(transportError);
-      })[functionName](...args);
-  });
-}
-
-function callApi(functionName, ...args) {
-  const hasAppsScriptRunner = Boolean(
-    typeof window !== "undefined" &&
-    window.google &&
-    window.google.script &&
-    window.google.script.run
-  );
-
-  if (useLocalMock && !hasAppsScriptRunner) {
-    return localMockApi[functionName](...args);
+    return await response.json();
+  } catch (error) {
+    return {
+      success: false,
+      code: "NETWORK_ERROR",
+      error: error.message || "Failed to communicate with API proxy."
+    };
   }
-
-  return callAppsScript(functionName, ...args);
 }
 
 export function apiRegisterTeam(idToken, data) {
-  return callApi("apiRegisterTeam", idToken, data);
+  return postToProxy("/api/register-team", "REGISTER_TEAM", idToken, data);
 }
 
 export function apiGetDomains(idToken) {
-  return callApi("apiGetDomains", idToken);
+  return postToProxy("/api/domains", "GET_DOMAINS", idToken);
 }
 
-export function apiSelectDomain(idToken, domainId) {
-  return callApi("apiSelectDomain", idToken, domainId);
+export function apiSelectDomain(idToken, dataOrDomainId) {
+  return postToProxy(
+    "/api/select-domain",
+    "SELECT_DOMAIN",
+    idToken,
+    typeof dataOrDomainId === "object" ? dataOrDomainId : { domainId: dataOrDomainId }
+  );
 }
 
 export function apiGetProblems(idToken, data) {
-  return callApi("apiGetProblems", idToken, data);
+  return postToProxy("/api/problems", "GET_PROBLEMS", idToken, data);
 }
 
 export function apiSelectProblem(idToken, data) {
-  return callApi("apiSelectProblem", idToken, data);
+  return postToProxy("/api/select-problem", "SELECT_PROBLEM", idToken, data);
 }
 
 export function apiGetMySelection(idToken) {
-  return callApi("apiGetMySelection", idToken);
+  return postToProxy("/api/my-selection", "GET_MY_SELECTION", idToken);
 }
 
 export function apiAdminGetStats(idToken) {
-  return callApi("apiAdminGetStats", idToken);
+  return postToProxy("/api/admin/stats", "ADMIN_GET_STATS", idToken);
 }
 
 export function apiAdminGetTeams(idToken, data) {
-  return callApi("apiAdminGetTeams", idToken, data);
+  return postToProxy("/api/admin/teams", "ADMIN_GET_TEAMS", idToken, data);
 }
 
 export function apiAdminAddTeam(idToken, data) {
-  return callApi("apiAdminAddTeam", idToken, data);
+  return postToProxy("/api/admin/add-team", "ADMIN_ADD_TEAM", idToken, data);
 }
 
 export function apiAdminUpdateTeam(idToken, data) {
-  return callApi("apiAdminUpdateTeam", idToken, data);
+  return postToProxy("/api/admin/update-team", "ADMIN_UPDATE_TEAM", idToken, data);
 }
 
 export function apiAdminEnableTeam(idToken, data) {
-  return callApi("apiAdminEnableTeam", idToken, data);
+  return postToProxy("/api/admin/enable-team", "ADMIN_ENABLE_TEAM", idToken, data);
 }
 
 export function apiAdminDisableTeam(idToken, data) {
-  return callApi("apiAdminDisableTeam", idToken, data);
+  return postToProxy("/api/admin/disable-team", "ADMIN_DISABLE_TEAM", idToken, data);
 }
 
 export function apiAdminGetProblems(idToken) {
-  return callApi("apiAdminGetProblems", idToken);
+  return postToProxy("/api/admin/problems", "ADMIN_GET_PROBLEMS", idToken);
 }
 
 export function apiAdminAddProblem(idToken, data) {
-  return callApi("apiAdminAddProblem", idToken, data);
+  return postToProxy("/api/admin/add-problem", "ADMIN_ADD_PROBLEM", idToken, data);
 }
 
 export function apiAdminUpdateProblem(idToken, data) {
-  return callApi("apiAdminUpdateProblem", idToken, data);
+  return postToProxy("/api/admin/update-problem", "ADMIN_UPDATE_PROBLEM", idToken, data);
 }
 
 export function apiAdminEnableProblem(idToken, data) {
-  return callApi("apiAdminEnableProblem", idToken, data);
+  return postToProxy("/api/admin/enable-problem", "ADMIN_ENABLE_PROBLEM", idToken, data);
 }
 
 export function apiAdminDisableProblem(idToken, data) {
-  return callApi("apiAdminDisableProblem", idToken, data);
+  return postToProxy("/api/admin/disable-problem", "ADMIN_DISABLE_PROBLEM", idToken, data);
 }
 
 export function apiAdminGetDomains(idToken) {
-  return callApi("apiAdminGetDomains", idToken);
+  return postToProxy("/api/admin/domains", "ADMIN_GET_DOMAINS", idToken);
 }
 
 export function apiAdminUpdateDomain(idToken, data) {
-  return callApi("apiAdminUpdateDomain", idToken, data);
+  return postToProxy("/api/admin/update-domain", "ADMIN_UPDATE_DOMAIN", idToken, data);
 }
 
 export function apiAdminReleaseNow(idToken) {
-  return callApi("apiAdminReleaseNow", idToken);
+  return postToProxy("/api/admin/release-now", "ADMIN_RELEASE_NOW", idToken);
 }
 
 export function apiAdminCloseSelection(idToken) {
-  return callApi("apiAdminCloseSelection", idToken);
+  return postToProxy("/api/admin/close-selection", "ADMIN_CLOSE_SELECTION", idToken);
 }
 
 export function apiAdminOpenSelection(idToken) {
-  return callApi("apiAdminOpenSelection", idToken);
+  return postToProxy("/api/admin/open-selection", "ADMIN_OPEN_SELECTION", idToken);
 }

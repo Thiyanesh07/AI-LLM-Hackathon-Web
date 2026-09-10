@@ -20,7 +20,7 @@ function getEmailFromJwt(token) {
       return payload.email || "";
     }
   } catch {
-    // Non-JWT or mock token
+    // Non-JWT token
   }
   return "";
 }
@@ -58,13 +58,7 @@ function RegistrationForm({ onSuccess, initialDomainId }) {
   });
 
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    const token = getAuthToken();
-    if (token) return true;
-    if (import.meta.env.DEV) {
-      setAuthToken("development-only-credential");
-      return true;
-    }
-    return false;
+    return Boolean(getAuthToken());
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -75,7 +69,7 @@ function RegistrationForm({ onSuccess, initialDomainId }) {
     let mounted = true;
     async function loadDomainCapacities() {
       try {
-        const idToken = getAuthToken() || "public-check";
+        const idToken = getAuthToken() || "";
         const response = await apiGetDomains(idToken);
         if (mounted && response && response.success && Array.isArray(response.data)) {
           const fetchedMap = {};
@@ -108,27 +102,43 @@ function RegistrationForm({ onSuccess, initialDomainId }) {
   useEffect(() => {
     if (isAuthenticated) return;
 
-    if (window.google && googleButtonRef.current) {
-      window.google.accounts.id.initialize({
-        client_id: import.meta.env.VITE_GOOGLE_CLIENT_ID,
-        callback: (res) => {
-          if (res.credential) {
-            setAuthToken(res.credential);
-            setIsAuthenticated(true);
-            const extractedEmail = getEmailFromJwt(res.credential);
-            if (extractedEmail) {
-              setAuthenticatedEmail(extractedEmail);
+    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+
+    const initGis = () => {
+      if (window.google && googleButtonRef.current) {
+        window.google.accounts.id.initialize({
+          client_id: clientId,
+          callback: (res) => {
+            if (res.credential) {
+              setAuthToken(res.credential);
+              setIsAuthenticated(true);
+              const extractedEmail = getEmailFromJwt(res.credential);
+              if (extractedEmail) {
+                setAuthenticatedEmail(extractedEmail);
+              }
+              setError("");
             }
-            setError("");
           }
+        });
+        window.google.accounts.id.renderButton(googleButtonRef.current, {
+          theme: "outline",
+          size: "large",
+          text: "signin_with",
+          shape: "rectangular"
+        });
+      }
+    };
+
+    if (window.google) {
+      initGis();
+    } else {
+      const interval = setInterval(() => {
+        if (window.google) {
+          clearInterval(interval);
+          initGis();
         }
-      });
-      window.google.accounts.id.renderButton(googleButtonRef.current, {
-        theme: "outline",
-        size: "large",
-        text: "signin_with",
-        shape: "rectangular"
-      });
+      }, 100);
+      return () => clearInterval(interval);
     }
   }, [isAuthenticated]);
 
@@ -250,20 +260,20 @@ function RegistrationForm({ onSuccess, initialDomainId }) {
   };
 
   return (
-    <div className="container py-5" style={{ maxWidth: 840 }}>
-      <div className="glass-card p-4 p-md-5">
+    <div className="container py-4 py-md-5 px-3" style={{ maxWidth: 840 }}>
+      <div className="glass-card p-3 p-sm-4 p-md-5">
         <div className="text-center mb-4">
           <span className="organizer-tag">Registration Flow</span>
-          <h2 className="text-light fw-bold mb-2">Team Registration</h2>
-          <p className="text-info fw-semibold mb-0">
+          <h2 className="text-light fw-bold mb-2 fs-3 fs-md-2">Team Registration</h2>
+          <p className="text-info fw-semibold mb-0 small">
             Team size must be 2–4 members, including the team leader.
           </p>
         </div>
 
         {!isAuthenticated && (
-          <div className="alert alert-warning text-center p-4 mb-4">
-            <h5 className="fw-bold mb-2">Google Login Required</h5>
-            <p className="small mb-3">Sign in with your official Google account to register your team.</p>
+          <div className="alert alert-warning text-center p-3 p-md-4 mb-4">
+            <h5 className="fw-bold mb-2 fs-5">Google Login Required</h5>
+            <p className="small mb-3">Sign in with your official @bitsathy.ac.in Google account to register your team.</p>
             <div ref={googleButtonRef} className="d-flex justify-content-center"></div>
           </div>
         )}
@@ -280,9 +290,9 @@ function RegistrationForm({ onSuccess, initialDomainId }) {
                 const isFull = dom.remainingCapacity === 0;
 
                 return (
-                  <div className="col-md-6" key={dom.id}>
+                  <div className="col-12 col-md-6" key={dom.id}>
                     <div
-                      className={`p-3 rounded-3 border text-start cursor-pointer transition-all ${
+                      className={`p-3 rounded-3 border text-start transition-all ${
                         isSelected
                           ? "border-primary bg-primary bg-opacity-20 text-light"
                           : "border-secondary border-opacity-25 bg-dark text-secondary"
@@ -292,7 +302,7 @@ function RegistrationForm({ onSuccess, initialDomainId }) {
                       }}
                       style={{ cursor: isFull ? "not-allowed" : "pointer" }}
                     >
-                      <div className="d-flex justify-content-between align-items-center mb-1">
+                      <div className="d-flex justify-content-between align-items-center mb-1 flex-wrap gap-1">
                         <strong className={isSelected ? "text-primary" : "text-light"}>{dom.id}</strong>
                         <small className={`badge ${isFull ? "bg-danger" : "bg-success"}`}>
                           {isFull ? "FULL" : `${dom.remainingCapacity} spots left`}
@@ -308,8 +318,10 @@ function RegistrationForm({ onSuccess, initialDomainId }) {
 
           {/* STEP 2: TEAM & LEADER DETAILS */}
           <div className="mb-4">
-            <label className="form-label text-light fw-bold">Team Name</label>
+            <label htmlFor="teamNameInput" className="form-label text-light fw-bold">Team Name</label>
             <input
+              id="teamNameInput"
+              type="text"
               className="form-control dark-input"
               placeholder="Enter team name"
               value={teamName}
@@ -322,11 +334,13 @@ function RegistrationForm({ onSuccess, initialDomainId }) {
             <div className="card-header bg-transparent text-primary fw-bold border-secondary border-opacity-25">
               <i className="bi bi-person-badge me-2"></i> Team Leader Details (Required)
             </div>
-            <div className="card-body">
+            <div className="card-body p-3 p-md-4">
               <div className="row g-3">
-                <div className="col-md-6">
-                  <label className="form-label text-secondary small">Leader Full Name</label>
+                <div className="col-12 col-md-6">
+                  <label htmlFor="leaderNameInput" className="form-label text-secondary small">Leader Full Name</label>
                   <input
+                    id="leaderNameInput"
+                    type="text"
                     className="form-control dark-input"
                     placeholder="Full name"
                     value={leader.name}
@@ -335,21 +349,25 @@ function RegistrationForm({ onSuccess, initialDomainId }) {
                   />
                 </div>
 
-                <div className="col-md-6">
-                  <label className="form-label text-secondary small">
-                    Leader Google Email <span className="badge bg-secondary ms-1">Authenticated</span>
+                <div className="col-12 col-md-6">
+                  <label htmlFor="leaderEmailInput" className="form-label text-secondary small">
+                    Leader Google Email {authenticatedEmail && <span className="badge bg-success ms-1">Verified</span>}
                   </label>
                   <input
+                    id="leaderEmailInput"
+                    type="email"
                     className="form-control dark-input bg-dark bg-opacity-75 text-info"
-                    value={authenticatedEmail || "Authenticated Account"}
+                    value={authenticatedEmail || "Sign in with Google first"}
                     readOnly
                     disabled
                   />
                 </div>
 
-                <div className="col-md-4">
-                  <label className="form-label text-secondary small">Register Number</label>
+                <div className="col-12 col-md-4">
+                  <label htmlFor="leaderRegInput" className="form-label text-secondary small">Register Number</label>
                   <input
+                    id="leaderRegInput"
+                    type="text"
                     className="form-control dark-input"
                     placeholder="Register number"
                     value={leader.registerNumber}
@@ -358,9 +376,11 @@ function RegistrationForm({ onSuccess, initialDomainId }) {
                   />
                 </div>
 
-                <div className="col-md-4">
-                  <label className="form-label text-secondary small">Department</label>
+                <div className="col-12 col-md-4">
+                  <label htmlFor="leaderDeptInput" className="form-label text-secondary small">Department</label>
                   <input
+                    id="leaderDeptInput"
+                    type="text"
                     className="form-control dark-input"
                     placeholder="Department (e.g. CSE)"
                     value={leader.department}
@@ -369,11 +389,12 @@ function RegistrationForm({ onSuccess, initialDomainId }) {
                   />
                 </div>
 
-                <div className="col-md-4">
-                  <label className="form-label text-secondary small">Mobile Number</label>
+                <div className="col-12 col-md-4">
+                  <label htmlFor="leaderMobileInput" className="form-label text-secondary small">Mobile Number</label>
                   <input
-                    className="form-control dark-input"
+                    id="leaderMobileInput"
                     type="tel"
+                    className="form-control dark-input"
                     placeholder="10-digit mobile number"
                     value={leaderMobile}
                     onChange={(e) => setLeaderMobile(e.target.value)}
@@ -387,14 +408,17 @@ function RegistrationForm({ onSuccess, initialDomainId }) {
           {/* STEP 3: MEMBERS */}
           {/* Member 1 (Required) */}
           <div className="card mb-3 bg-dark bg-opacity-50 border-secondary border-opacity-25">
-            <div className="card-header bg-transparent text-light fw-bold border-secondary border-opacity-25 d-flex justify-content-between">
+            <div className="card-header bg-transparent text-light fw-bold border-secondary border-opacity-25 d-flex justify-content-between align-items-center">
               <span>Member 1</span>
               <span className="badge bg-danger">Required</span>
             </div>
-            <div className="card-body">
+            <div className="card-body p-3 p-md-4">
               <div className="row g-3">
-                <div className="col-md-4">
+                <div className="col-12 col-md-4">
+                  <label htmlFor="m1NameInput" className="form-label text-secondary small d-md-none">Name</label>
                   <input
+                    id="m1NameInput"
+                    type="text"
                     className="form-control dark-input"
                     placeholder="Name"
                     value={member1.name}
@@ -402,8 +426,11 @@ function RegistrationForm({ onSuccess, initialDomainId }) {
                     required
                   />
                 </div>
-                <div className="col-md-4">
+                <div className="col-12 col-md-4">
+                  <label htmlFor="m1RegInput" className="form-label text-secondary small d-md-none">Register Number</label>
                   <input
+                    id="m1RegInput"
+                    type="text"
                     className="form-control dark-input"
                     placeholder="Register Number"
                     value={member1.registerNumber}
@@ -411,8 +438,11 @@ function RegistrationForm({ onSuccess, initialDomainId }) {
                     required
                   />
                 </div>
-                <div className="col-md-4">
+                <div className="col-12 col-md-4">
+                  <label htmlFor="m1DeptInput" className="form-label text-secondary small d-md-none">Department</label>
                   <input
+                    id="m1DeptInput"
+                    type="text"
                     className="form-control dark-input"
                     placeholder="Department"
                     value={member1.department}
@@ -426,30 +456,39 @@ function RegistrationForm({ onSuccess, initialDomainId }) {
 
           {/* Member 2 (Optional) */}
           <div className="card mb-3 bg-dark bg-opacity-50 border-secondary border-opacity-25">
-            <div className="card-header bg-transparent text-secondary fw-semibold border-secondary border-opacity-25 d-flex justify-content-between">
+            <div className="card-header bg-transparent text-secondary fw-semibold border-secondary border-opacity-25 d-flex justify-content-between align-items-center">
               <span>Member 2</span>
               <span className="badge bg-secondary">Optional</span>
             </div>
-            <div className="card-body">
+            <div className="card-body p-3 p-md-4">
               <div className="row g-3">
-                <div className="col-md-4">
+                <div className="col-12 col-md-4">
+                  <label htmlFor="m2NameInput" className="form-label text-secondary small d-md-none">Name</label>
                   <input
+                    id="m2NameInput"
+                    type="text"
                     className="form-control dark-input"
                     placeholder="Name"
                     value={member2.name}
                     onChange={(e) => setMember2({ ...member2, name: e.target.value })}
                   />
                 </div>
-                <div className="col-md-4">
+                <div className="col-12 col-md-4">
+                  <label htmlFor="m2RegInput" className="form-label text-secondary small d-md-none">Register Number</label>
                   <input
+                    id="m2RegInput"
+                    type="text"
                     className="form-control dark-input"
                     placeholder="Register Number"
                     value={member2.registerNumber}
                     onChange={(e) => setMember2({ ...member2, registerNumber: e.target.value })}
                   />
                 </div>
-                <div className="col-md-4">
+                <div className="col-12 col-md-4">
+                  <label htmlFor="m2DeptInput" className="form-label text-secondary small d-md-none">Department</label>
                   <input
+                    id="m2DeptInput"
+                    type="text"
                     className="form-control dark-input"
                     placeholder="Department"
                     value={member2.department}
@@ -462,30 +501,39 @@ function RegistrationForm({ onSuccess, initialDomainId }) {
 
           {/* Member 3 (Optional) */}
           <div className="card mb-4 bg-dark bg-opacity-50 border-secondary border-opacity-25">
-            <div className="card-header bg-transparent text-secondary fw-semibold border-secondary border-opacity-25 d-flex justify-content-between">
+            <div className="card-header bg-transparent text-secondary fw-semibold border-secondary border-opacity-25 d-flex justify-content-between align-items-center">
               <span>Member 3</span>
               <span className="badge bg-secondary">Optional</span>
             </div>
-            <div className="card-body">
+            <div className="card-body p-3 p-md-4">
               <div className="row g-3">
-                <div className="col-md-4">
+                <div className="col-12 col-md-4">
+                  <label htmlFor="m3NameInput" className="form-label text-secondary small d-md-none">Name</label>
                   <input
+                    id="m3NameInput"
+                    type="text"
                     className="form-control dark-input"
                     placeholder="Name"
                     value={member3.name}
                     onChange={(e) => setMember3({ ...member3, name: e.target.value })}
                   />
                 </div>
-                <div className="col-md-4">
+                <div className="col-12 col-md-4">
+                  <label htmlFor="m3RegInput" className="form-label text-secondary small d-md-none">Register Number</label>
                   <input
+                    id="m3RegInput"
+                    type="text"
                     className="form-control dark-input"
                     placeholder="Register Number"
                     value={member3.registerNumber}
                     onChange={(e) => setMember3({ ...member3, registerNumber: e.target.value })}
                   />
                 </div>
-                <div className="col-md-4">
+                <div className="col-12 col-md-4">
+                  <label htmlFor="m3DeptInput" className="form-label text-secondary small d-md-none">Department</label>
                   <input
+                    id="m3DeptInput"
+                    type="text"
                     className="form-control dark-input"
                     placeholder="Department"
                     value={member3.department}
@@ -496,9 +544,10 @@ function RegistrationForm({ onSuccess, initialDomainId }) {
             </div>
           </div>
 
-          {error && <div className="alert alert-danger py-2 mb-4">{error}</div>}
+          {error && <div className="alert alert-danger py-2 mb-4 fs-6">{error}</div>}
 
           <button
+            type="submit"
             className="btn btn-brand w-100 py-3 fs-5"
             disabled={loading || !isAuthenticated}
           >

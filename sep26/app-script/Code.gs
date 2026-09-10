@@ -140,92 +140,70 @@ function doPost(e) {
     switch (request.action) {
 
       case "REGISTER_TEAM":
-        return createJsonResponse(registerTeam(request.idToken, request.data));
+        return createJsonResponse(apiRegisterTeam(request.idToken, request.data));
 
       case "GET_DOMAINS":
-        return createJsonResponse({
-          success: true,
-          data: getParticipantDomains(request.idToken)
-        });
+        return createJsonResponse(apiGetDomains(request.idToken));
 
       case "SELECT_DOMAIN":
-        return createJsonResponse(selectDomain(request.idToken, request.data || request.domainId));
+        return createJsonResponse(apiSelectDomain(request.idToken, request.data || request.domainId));
 
       case "GET_PROBLEMS":
-        return createJsonResponse({
-          success: true,
-          data: getParticipantProblems(request.idToken, request.data)
-        });
+        return createJsonResponse(apiGetProblems(request.idToken, request.data));
 
       case "SELECT_PROBLEM":
-        return createJsonResponse(selectProblem(request.idToken, request.data));
+        return createJsonResponse(apiSelectProblem(request.idToken, request.data));
 
       case "GET_MY_SELECTION":
-        return createJsonResponse(getMySelection(request.idToken));
+        return createJsonResponse(apiGetMySelection(request.idToken));
 
       case "ADMIN_GET_STATS":
-        requireAdmin(request.idToken);
-        return createJsonResponse({ success: true, data: getAdminDashboardStats() });
+        return createJsonResponse(apiAdminGetStats(request.idToken));
 
       case "ADMIN_GET_TEAMS":
-        requireAdmin(request.idToken);
-        return createJsonResponse({ success: true, data: getAdminTeams(request.data) });
+        return createJsonResponse(apiAdminGetTeams(request.idToken, request.data));
 
       case "ADMIN_ADD_TEAM":
-        requireAdmin(request.idToken);
-        return createJsonResponse(adminAddTeam(request.data || {}));
+        return createJsonResponse(apiAdminAddTeam(request.idToken, request.data || {}));
 
       case "ADMIN_UPDATE_TEAM":
-        requireAdmin(request.idToken);
-        return createJsonResponse(adminUpdateTeam(request.data || {}));
+        return createJsonResponse(apiAdminUpdateTeam(request.idToken, request.data || {}));
 
       case "ADMIN_ENABLE_TEAM":
-        requireAdmin(request.idToken);
-        return createJsonResponse(adminEnableTeam(getRequestedTeamId(request.data)));
+        return createJsonResponse(apiAdminEnableTeam(request.idToken, request.data));
 
       case "ADMIN_DISABLE_TEAM":
-        requireAdmin(request.idToken);
-        return createJsonResponse(adminDisableTeam(getRequestedTeamId(request.data)));
+        return createJsonResponse(apiAdminDisableTeam(request.idToken, request.data));
 
       case "ADMIN_GET_PROBLEMS":
-        requireAdmin(request.idToken);
-        return createJsonResponse({ success: true, data: getAdminProblems() });
+        return createJsonResponse(apiAdminGetProblems(request.idToken));
 
       case "ADMIN_ADD_PROBLEM":
-        requireAdmin(request.idToken);
-        return createJsonResponse(adminAddProblem(request.data || {}));
+        return createJsonResponse(apiAdminAddProblem(request.idToken, request.data || {}));
 
       case "ADMIN_UPDATE_PROBLEM":
-        requireAdmin(request.idToken);
-        return createJsonResponse(adminUpdateProblem(request.data || {}));
+        return createJsonResponse(apiAdminUpdateProblem(request.idToken, request.data || {}));
 
       case "ADMIN_ENABLE_PROBLEM":
-        requireAdmin(request.idToken);
-        return createJsonResponse(adminEnableProblem(getRequestedProblemId(request.data)));
+        return createJsonResponse(apiAdminEnableProblem(request.idToken, request.data));
 
       case "ADMIN_DISABLE_PROBLEM":
-        requireAdmin(request.idToken);
-        return createJsonResponse(adminDisableProblem(getRequestedProblemId(request.data)));
+        return createJsonResponse(apiAdminDisableProblem(request.idToken, request.data));
 
       case "ADMIN_GET_DOMAINS":
-        requireAdmin(request.idToken);
-        return createJsonResponse({ success: true, data: getAdminDomains() });
+        return createJsonResponse(apiAdminGetDomains(request.idToken));
 
       case "ADMIN_UPDATE_DOMAIN":
-        requireAdmin(request.idToken);
-        return createJsonResponse(adminUpdateDomain(request.data || {}));
+        return createJsonResponse(apiAdminUpdateDomain(request.idToken, request.data || {}));
 
       case "ADMIN_RELEASE_NOW":
-        requireAdmin(request.idToken);
-        return createJsonResponse(adminReleaseNow());
+        return createJsonResponse(apiAdminReleaseNow(request.idToken));
 
       case "ADMIN_CLOSE_SELECTION":
-        requireAdmin(request.idToken);
-        return createJsonResponse(adminSetSelectionStatus(SELECTION_STATUS.CLOSED));
+        return createJsonResponse(apiAdminCloseSelection(request.idToken));
 
       case "ADMIN_OPEN_SELECTION":
-        requireAdmin(request.idToken);
-        return createJsonResponse(adminSetSelectionStatus(SELECTION_STATUS.OPEN));
+        return createJsonResponse(apiAdminOpenSelection(request.idToken));
 
       default:
         throwApiError("The requested action is not supported.", "INVALID_ACTION");
