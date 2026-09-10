@@ -26,7 +26,7 @@ const ACTION_MAP = {
   "/admin/open-selection": "ADMIN_OPEN_SELECTION"
 };
 
-export async function handler(event) {
+const handler = async function (event) {
   if (event.httpMethod === "OPTIONS") {
     return {
       statusCode: 204,
@@ -143,4 +143,7 @@ export async function handler(event) {
       })
     };
   }
-}
+};
+
+export { handler };
+export default handler;
