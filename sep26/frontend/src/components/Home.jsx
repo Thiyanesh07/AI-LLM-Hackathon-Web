@@ -178,6 +178,11 @@ function Home({ setPage, setSelectedDomainId }) {
               Explore Domains
             </a>
           </div>
+
+          <div className="mt-3 text-warning fw-semibold small">
+            <i className="bi bi-clock-history me-1"></i>
+            Registration Deadline: 12 September 2026, 8:00 PM IST
+          </div>
         </div>
       </section>
 
@@ -479,6 +484,10 @@ function Home({ setPage, setSelectedDomainId }) {
           >
             Register Your Team Now <i className="bi bi-arrow-right ms-2"></i>
           </button>
+          <div className="mt-3 text-warning fw-semibold small">
+            <i className="bi bi-clock-history me-1"></i>
+            Registration Deadline: 12 September 2026, 8:00 PM IST
+          </div>
         </div>
       </section>
 

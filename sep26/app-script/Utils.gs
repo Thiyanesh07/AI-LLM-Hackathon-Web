@@ -276,3 +276,42 @@ function isSelectionOpen() {
     .trim()
     .toUpperCase() === SELECTION_STATUS.OPEN;
 }
+
+
+function isRegistrationOpen() {
+  const enabledValue = getConfigValue("REGISTRATION_ENABLED");
+  if (enabledValue !== null && enabledValue !== undefined && String(enabledValue).trim() !== "") {
+    const enabledStr = String(enabledValue).trim().toUpperCase();
+    if (enabledStr === "FALSE") {
+      return false;
+    }
+  }
+
+  const deadlineValue = getConfigValue("REGISTRATION_DEADLINE");
+  if (deadlineValue !== null && deadlineValue !== undefined && String(deadlineValue).trim() !== "") {
+    let deadlineDate = null;
+    if (deadlineValue instanceof Date) {
+      deadlineDate = deadlineValue;
+    } else {
+      const parsedStr = String(deadlineValue).trim();
+      if (parsedStr) {
+        deadlineDate = new Date(parsedStr);
+      }
+    }
+
+    if (deadlineDate && !isNaN(deadlineDate.getTime())) {
+      if (new Date().getTime() >= deadlineDate.getTime()) {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
+
+function checkRegistrationOpen() {
+  if (!isRegistrationOpen()) {
+    throwApiError("Registration has closed.", "REGISTRATION_CLOSED");
+  }
+}

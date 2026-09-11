@@ -62,6 +62,7 @@ function RegistrationForm({ onSuccess, initialDomainId }) {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [isRegistrationClosed, setIsRegistrationClosed] = useState(false);
 
   const googleButtonRef = useRef(null);
 
@@ -250,7 +251,12 @@ function RegistrationForm({ onSuccess, initialDomainId }) {
           leaderName: leader.name.trim()
         });
       } else {
-        setError(response.error || response.message || "Team registration failed. Please check inputs.");
+        if (response && response.code === "REGISTRATION_CLOSED") {
+          setIsRegistrationClosed(true);
+          setError("");
+        } else {
+          setError(response.error || response.message || "Team registration failed. Please check inputs.");
+        }
       }
     } catch (err) {
       setError(err.message || "Failed to submit registration to Apps Script backend.");
@@ -265,9 +271,13 @@ function RegistrationForm({ onSuccess, initialDomainId }) {
         <div className="text-center mb-4">
           <span className="organizer-tag">Registration Flow</span>
           <h2 className="text-light fw-bold mb-2 fs-3 fs-md-2">Team Registration</h2>
-          <p className="text-info fw-semibold mb-0 small">
+          <p className="text-info fw-semibold mb-1 small">
             Team size must be 2–4 members, including the team leader.
           </p>
+          <div className="text-warning fw-semibold small mt-2">
+            <i className="bi bi-clock-history me-1"></i>
+            Registration Deadline: 12 September 2026, 8:00 PM IST
+          </div>
         </div>
 
         {!isAuthenticated && (
@@ -544,14 +554,28 @@ function RegistrationForm({ onSuccess, initialDomainId }) {
             </div>
           </div>
 
+          {isRegistrationClosed && (
+            <div className="alert alert-danger p-4 text-center border-danger border-opacity-50 rounded-3 my-4">
+              <h4 className="fw-bold text-light mb-2">Registration Closed</h4>
+              <p className="mb-0 text-light opacity-90 fs-6">
+                Registration closed on 12 September 2026 at 8:00 PM IST.
+              </p>
+            </div>
+          )}
+
           {error && <div className="alert alert-danger py-2 mb-4 fs-6">{error}</div>}
+
+          <div className="text-center text-warning fw-semibold small mb-3">
+            <i className="bi bi-clock-history me-1"></i>
+            Registration Deadline: 12 September 2026, 8:00 PM IST
+          </div>
 
           <button
             type="submit"
             className="btn btn-brand w-100 py-3 fs-5"
-            disabled={loading || !isAuthenticated}
+            disabled={loading || !isAuthenticated || isRegistrationClosed}
           >
-            {loading ? "Submitting Registration..." : "Submit Registration"}
+            {isRegistrationClosed ? "Registration Closed" : loading ? "Submitting Registration..." : "Submit Registration"}
           </button>
         </form>
       </div>

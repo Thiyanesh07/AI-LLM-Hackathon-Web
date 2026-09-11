@@ -264,6 +264,8 @@ function createTeam(data) {
   lock.waitLock(10000);
 
   try {
+    checkRegistrationOpen();
+
     try {
       validateTeamRegistration(data);
     } catch (error) {

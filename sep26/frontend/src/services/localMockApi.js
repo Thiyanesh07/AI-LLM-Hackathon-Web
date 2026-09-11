@@ -131,7 +131,25 @@ export function apiGetProblems(_idToken, data) {
   return success(problems);
 }
 
+let mockRegistrationEnabled = true;
+let mockRegistrationDeadline = "2026-09-12T20:00:00+05:30";
+
+function isMockRegistrationOpen() {
+  if (!mockRegistrationEnabled) return false;
+  if (mockRegistrationDeadline) {
+    const deadline = new Date(mockRegistrationDeadline);
+    if (!isNaN(deadline.getTime()) && Date.now() >= deadline.getTime()) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export function apiRegisterTeam(idToken, data) {
+  if (!isMockRegistrationOpen()) {
+    return failure("REGISTRATION_CLOSED", "Registration has closed.");
+  }
+
   if (!idToken) {
     return failure("AUTH_REQUIRED", "Authentication is required before registering a team.");
   }

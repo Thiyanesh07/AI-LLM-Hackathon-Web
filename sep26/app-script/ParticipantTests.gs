@@ -240,3 +240,74 @@ function testClosedSelectionPreventsProblemRetrieval(idToken, domainId) {
     return { skipped: false, code: error.code };
   }
 }
+
+
+function testRegistrationOpenBeforeDeadline() {
+  const futureDeadline = new Date(Date.now() + 86400000).toISOString();
+  setConfigValue("REGISTRATION_ENABLED", "TRUE");
+  setConfigValue("REGISTRATION_DEADLINE", futureDeadline);
+
+  assertParticipantTest(isRegistrationOpen() === true, "registration should be open before deadline");
+  return { success: true };
+}
+
+
+function testRegistrationClosedAfterDeadline() {
+  const pastDeadline = new Date(Date.now() - 86400000).toISOString();
+  setConfigValue("REGISTRATION_ENABLED", "TRUE");
+  setConfigValue("REGISTRATION_DEADLINE", pastDeadline);
+
+  assertParticipantTest(isRegistrationOpen() === false, "registration should be closed after deadline");
+
+  try {
+    checkRegistrationOpen();
+    throw new Error("checkRegistrationOpen should have thrown when deadline passed");
+  } catch (error) {
+    assertParticipantTest(error.code === "REGISTRATION_CLOSED", "wrong error code for past deadline");
+  }
+
+  return { success: true };
+}
+
+
+function testRegistrationDisabledSwitch() {
+  setConfigValue("REGISTRATION_ENABLED", "FALSE");
+
+  assertParticipantTest(isRegistrationOpen() === false, "registration should be closed when disabled");
+
+  try {
+    checkRegistrationOpen();
+    throw new Error("checkRegistrationOpen should have thrown when disabled");
+  } catch (error) {
+    assertParticipantTest(error.code === "REGISTRATION_CLOSED", "wrong error code when disabled");
+  }
+
+  return { success: true };
+}
+
+
+function testClosedRegistrationRejectsTeamCreation() {
+  setConfigValue("REGISTRATION_ENABLED", "FALSE");
+
+  const dummyTeamData = {
+    teamName: "Closed Test Team",
+    leaderName: "Test Leader",
+    leaderEmail: "testclosed@bitsathy.ac.in",
+    leaderMobile: "9876543210",
+    leaderRegisterNumber: "CLOSED001",
+    leaderDepartment: "CSE",
+    domainId: "AGR",
+    members: [{ name: "Member 1", registerNumber: "CLOSED002", department: "CSE" }]
+  };
+
+  try {
+    createTeam(dummyTeamData);
+    throw new Error("createTeam should have been rejected when registration is closed");
+  } catch (error) {
+    assertParticipantTest(error.code === "REGISTRATION_CLOSED", "wrong error code on createTeam when closed");
+    assertParticipantTest(error.message === "Registration has closed.", "wrong error message on createTeam when closed");
+  }
+
+  return { success: true };
+}
+
