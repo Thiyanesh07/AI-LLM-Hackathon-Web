@@ -1,0 +1,8 @@
+{
+  "installCommand": "cd sep26/frontend && npm install",
+  "buildCommand": "cd sep26/frontend && npm run build",
+  "outputDirectory": "sep26/frontend/dist",
+  "rewrites": [
+    { "source": "/((?!api/.*).*)", "destination": "/index.html" }
+  ]
+}

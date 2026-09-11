@@ -1,0 +1,7 @@
+{
+  "name": "ai-hackathon-web",
+  "private": true,
+  "scripts": {
+    "build": "cd sep26/frontend && npm install && npm run build"
+  }
+}
