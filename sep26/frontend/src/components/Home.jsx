@@ -181,7 +181,7 @@ function Home({ setPage, setSelectedDomainId }) {
 
           <div className="mt-3 text-warning fw-semibold small">
             <i className="bi bi-clock-history me-1"></i>
-            Registration Deadline: 12 September 2026, 8:00 PM IST
+            Registration Deadline: 12 September 2026, 12:00 PM IST
           </div>
         </div>
       </section>
@@ -486,7 +486,7 @@ function Home({ setPage, setSelectedDomainId }) {
           </button>
           <div className="mt-3 text-warning fw-semibold small">
             <i className="bi bi-clock-history me-1"></i>
-            Registration Deadline: 12 September 2026, 8:00 PM IST
+            Registration Deadline: 12 September 2026, 12:00 PM IST
           </div>
         </div>
       </section>

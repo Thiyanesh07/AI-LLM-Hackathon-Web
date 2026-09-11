@@ -276,7 +276,7 @@ function RegistrationForm({ onSuccess, initialDomainId }) {
           </p>
           <div className="text-warning fw-semibold small mt-2">
             <i className="bi bi-clock-history me-1"></i>
-            Registration Deadline: 12 September 2026, 8:00 PM IST
+            Registration Deadline: 12 September 2026, 12:00 PM IST
           </div>
         </div>
 
@@ -558,7 +558,7 @@ function RegistrationForm({ onSuccess, initialDomainId }) {
             <div className="alert alert-danger p-4 text-center border-danger border-opacity-50 rounded-3 my-4">
               <h4 className="fw-bold text-light mb-2">Registration Closed</h4>
               <p className="mb-0 text-light opacity-90 fs-6">
-                Registration closed on 12 September 2026 at 8:00 PM IST.
+                Registration closed on 12 September 2026 at 12:00 PM IST.
               </p>
             </div>
           )}
@@ -567,7 +567,7 @@ function RegistrationForm({ onSuccess, initialDomainId }) {
 
           <div className="text-center text-warning fw-semibold small mb-3">
             <i className="bi bi-clock-history me-1"></i>
-            Registration Deadline: 12 September 2026, 8:00 PM IST
+            Registration Deadline: 12 September 2026, 12:00 PM IST
           </div>
 
           <button

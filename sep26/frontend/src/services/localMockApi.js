@@ -132,7 +132,7 @@ export function apiGetProblems(_idToken, data) {
 }
 
 let mockRegistrationEnabled = true;
-let mockRegistrationDeadline = "2026-09-12T20:00:00+05:30";
+let mockRegistrationDeadline = "2026-09-12T12:00:00+05:30";
 
 function isMockRegistrationOpen() {
   if (!mockRegistrationEnabled) return false;
