@@ -174,8 +174,15 @@ async function runLiveVerification() {
   logStep(12, 'Admin Release Now & Open Selection', relNowRes.success && openSelRes.success, { relNowRes: relNowRes.raw, openSelRes: openSelRes.raw });
 
   // STEP 13: Controlled Real Selection
-  console.log('\nPhase 13: Controlled Real Selection (Team A -> EDU-01)...');
-  const targetPsId = 'EDU-01';
+  console.log('\nPhase 13: Controlled Real Selection...');
+  const existingPsIds = new Set(baseline.selections.map(s => String(s.PSID || s.psid || '').toUpperCase()));
+  const unallocatedEduProb = baseline.problems.find(p => {
+    const psid = String(p.PSID || p.psId || '').toUpperCase();
+    const pDomain = String(p.DomainID || p.domainId || '').toUpperCase();
+    return (pDomain === 'EDU' || psid.startsWith('EDU-')) && !existingPsIds.has(psid);
+  });
+  const targetPsId = unallocatedEduProb ? String(unallocatedEduProb.PSID || unallocatedEduProb.psId).trim() : 'EDU-02';
+  console.log(`Targeting unallocated problem ${targetPsId} for Team A (${testTeamA.TeamID})...`);
   const lockRes = await postApi('LOCK_PROBLEM', teamTokenA, { psid: targetPsId });
   logStep(13, 'Controlled Real Selection', lockRes.success, lockRes.raw);
 
@@ -205,7 +212,7 @@ async function runLiveVerification() {
 
   // STEP 16: Attempt second selection by winning team
   console.log('\nPhase 16: Second Selection Rejection (Winning Team)...');
-  const secondLockRes = await postApi('LOCK_PROBLEM', teamTokenA, { psid: 'EDU-02' });
+  const secondLockRes = await postApi('LOCK_PROBLEM', teamTokenA, { psid: 'EDU-03' });
   const secondLockRejected = !secondLockRes.success && (secondLockRes.raw?.code === 'TEAM_ALREADY_LOCKED' || secondLockRes.raw?.code === 'TEAM_ALREADY_HAS_SELECTION');
   logStep(16, 'Second Selection Rejection', secondLockRejected, { code: secondLockRes.raw?.code, error: secondLockRes.raw?.error });
 
@@ -234,7 +241,14 @@ async function runLiveVerification() {
   // STEP 20: Restore release state & set ALLOW_SELECTION_RESET = FALSE
   console.log('\nPhase 20: Restore Safe State...');
   await postApi('ADMIN_SET_ALLOW_RESET', adminToken, { allowResetSelection: false });
-  logStep(20, 'Restore Safe State (ALLOW_SELECTION_RESET = false)', true);
+  await postApi('ADMIN_UPDATE_CONFIG', adminToken, {
+    registrationEnabled: false,
+    problemReleaseOverride: false,
+    selectionStatus: 'CLOSED',
+    problemReleaseAt: '2026-09-15T10:00:00+05:30',
+    problemCloseAt: '2026-09-15T10:30:00+05:30'
+  });
+  logStep(20, 'Restore Safe State (ALLOW_SELECTION_RESET = false, Config = 2026-09-15 10:00-10:30 IST)', true);
 
   // STEP 21: Compare post-test production data against baseline
   console.log('\nPhase 21: Post-Test Production Baseline Comparison...');

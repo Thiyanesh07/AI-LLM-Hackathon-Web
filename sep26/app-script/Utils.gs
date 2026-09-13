@@ -171,13 +171,15 @@ function getConfigValue(key) {
 function setConfigValue(key, value) {
   const sheet = getSheet(SHEET_NAMES.CONFIG);
   const targetKey = String(key || "").trim();
+  const targetNorm = normalizeHeaderKey(targetKey);
   const lastCol = sheet.getLastColumn();
 
   if (lastCol >= 1) {
     const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
     for (let i = 0; i < headers.length; i++) {
-      if (String(headers[i]).trim() === targetKey) {
+      if (normalizeHeaderKey(headers[i]) === targetNorm) {
         sheet.getRange(2, i + 1).setValue(value);
+        SpreadsheetApp.flush();
         _configCacheMap = null;
         return;
       }
@@ -187,6 +189,7 @@ function setConfigValue(key, value) {
   const newCol = Math.max(lastCol, 0) + 1;
   sheet.getRange(1, newCol).setValue(targetKey);
   sheet.getRange(2, newCol).setValue(value);
+  SpreadsheetApp.flush();
   _configCacheMap = null;
 }
 
