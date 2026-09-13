@@ -22,23 +22,10 @@ function getActiveDomains() {
 function getLockedSelectionCountByDomain(domainId) {
   const normalizedDomainId = String(domainId || "").trim().toUpperCase();
 
-  const teamDomainCount = getSheetRecords(SHEET_NAMES.TEAMS).filter(function(team) {
-    return String(team.Status || "").trim().toUpperCase() === TEAM_STATUS.ACTIVE &&
-      String(team.DomainID || "").trim().toUpperCase() === normalizedDomainId;
+  return getSheetRecords(SHEET_NAMES.SELECTIONS).filter(function(selection) {
+    return String(selection.Status || "").trim().toUpperCase() === SELECTION_STATUS.LOCKED &&
+      String(selection.DomainID || "").trim().toUpperCase() === normalizedDomainId;
   }).length;
-
-  const lockedSelectionsCount = getSheetRecords(SHEET_NAMES.SELECTIONS).filter(function(selection) {
-    if (String(selection.Status || "").trim().toUpperCase() !== SELECTION_STATUS.LOCKED) {
-      return false;
-    }
-    if (String(selection.DomainID || "").trim().toUpperCase() !== normalizedDomainId) {
-      return false;
-    }
-    const team = getTeamById(selection.TeamID);
-    return !team || String(team.DomainID || "").trim().toUpperCase() !== normalizedDomainId;
-  }).length;
-
-  return teamDomainCount + lockedSelectionsCount;
 }
 
 

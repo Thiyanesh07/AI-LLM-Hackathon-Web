@@ -14,9 +14,13 @@ function getProblemById(psId) {
 
 function getProblemsByDomain(domainId) {
   const normalizedDomainId = String(domainId || "").trim().toUpperCase();
+  const domain = getDomainById(normalizedDomainId);
+  const domainName = domain ? String(domain.DomainName || "").trim().toUpperCase() : "";
 
   return getSheetRecords(SHEET_NAMES.PROBLEMS).filter(function(problem) {
-    return String(problem.DomainID).trim().toUpperCase() === normalizedDomainId;
+    const pDomain = String(problem.DomainID || "").trim().toUpperCase();
+    const psId = String(problem.PSID || "").trim().toUpperCase();
+    return pDomain === normalizedDomainId || (domainName && pDomain === domainName) || psId.startsWith(normalizedDomainId + "-");
   });
 }
 
@@ -42,17 +46,39 @@ function getAvailableProblemsByDomain(domainId) {
         PSID: String(problem.PSID).trim(),
         Title: String(problem.Title || "").trim(),
         Description: String(problem.Description || "").trim(),
-        WhatToBuild: String(problem.WhatToBuild || "").trim(),
-        DomainID: String(problem.DomainID).trim().toUpperCase()
+        WhatToBuild: String(problem.WhatToBuild || "").trim()
       };
     });
 }
 
 
 function getParticipantProblems(idToken, data) {
-  requireTeamLeader(idToken);
+  const authorization = requireTeamLeader(idToken);
+  const team = authorization.team;
+  const domainId = String(team.DomainID || "").trim().toUpperCase();
+  const releaseAt = getProblemReleaseAt();
+  const releaseState = {
+    releaseAt: releaseAt,
+    selectionState: "NOT_RELEASED"
+  };
 
-  const domainId = String(data && data.domainId || "").trim().toUpperCase();
+  const canonicalTeamId = String(team.TeamID || team.teamId || team["Team ID"] || team.TeamId || "").trim();
+  if (getLockedSelectionByTeamId(canonicalTeamId)) {
+    return {
+      releaseAt: releaseAt,
+      selectionState: SELECTION_STATUS.LOCKED,
+      problems: []
+    };
+  }
+
+  if (!isProblemReleased()) {
+    return releaseState;
+  }
+
+  if (!isSelectionOpen()) {
+    throwApiError("Problem selection is closed.", "SELECTION_CLOSED");
+  }
+
   const domain = getDomainById(domainId);
 
   if (!domain) {
@@ -61,17 +87,6 @@ function getParticipantProblems(idToken, data) {
 
   if (String(domain.Status).trim().toUpperCase() !== DOMAIN_STATUS.ACTIVE) {
     throwApiError("The requested domain is disabled.", "DOMAIN_DISABLED");
-  }
-
-  if (!isProblemReleased()) {
-    throwApiError(
-      "Problem statements have not been released yet.",
-      "PROBLEMS_NOT_RELEASED"
-    );
-  }
-
-  if (!isSelectionOpen()) {
-    throwApiError("Problem selection is closed.", "SELECTION_CLOSED");
   }
 
   const maximumTeams = parsePositiveInteger(domain.MaximumTeams);
@@ -84,5 +99,9 @@ function getParticipantProblems(idToken, data) {
     );
   }
 
-  return getAvailableProblemsByDomain(domainId);
+  return {
+    releaseAt: releaseAt,
+    selectionState: SELECTION_STATUS.OPEN,
+    problems: getAvailableProblemsByDomain(domainId)
+  };
 }

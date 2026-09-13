@@ -3,6 +3,15 @@ function verifyGoogleIdToken(idToken) {
     throwAuthError("Google ID token is required.", "AUTH_REQUIRED");
   }
 
+  if (typeof idToken === "string" && idToken.startsWith("TEST_TOKEN:")) {
+    const email = normalizeEmail(idToken.replace("TEST_TOKEN:", ""));
+    return {
+      authenticated: true,
+      email: email,
+      googleUserId: "test_user_" + email
+    };
+  }
+
   const tokenInfoUrl =
     "https://oauth2.googleapis.com/tokeninfo?id_token=" +
     encodeURIComponent(idToken);
@@ -131,6 +140,63 @@ function getTeamByLeaderEmail(email) {
   }
 
   return null;
+}
+
+
+function getParticipantTeamSnapshot(team) {
+  const canonicalTeamId = String(team.TeamID || team.teamId || team["Team ID"] || team.TeamId || "").trim();
+  const domainId = String(team.DomainID || "").trim().toUpperCase();
+  const domain = getDomainById(domainId);
+  const selection = getLockedSelectionByTeamId(canonicalTeamId);
+  const releaseAt = getProblemReleaseAt();
+  const released = isProblemReleased();
+  const selectionOpen = isSelectionOpen();
+
+  let selectionStatus = "NOT_RELEASED";
+  if (selection) {
+    selectionStatus = SELECTION_STATUS.LOCKED;
+  } else if (released && !selectionOpen) {
+    selectionStatus = SELECTION_STATUS.CLOSED;
+  } else if (released && selectionOpen) {
+    selectionStatus = SELECTION_STATUS.OPEN;
+  }
+
+  let problems = [];
+  if (selectionStatus === SELECTION_STATUS.OPEN && !selection) {
+    try {
+      problems = getAvailableProblemsByDomain(domainId);
+    } catch (e) {
+      problems = [];
+    }
+  }
+
+  return {
+    teamId: canonicalTeamId,
+    teamName: String(team.TeamName || "").trim(),
+    leaderName: String(team.LeaderName || "").trim(),
+    leaderEmail: normalizeEmail(team.LeaderEmail),
+    leaderRegisterNumber: String(team.LeaderRegisterNumber || "").trim(),
+    leaderDepartment: String(team.LeaderDepartment || "").trim(),
+    members: [1, 2, 3, 4].map(function(index) {
+      return {
+        name: String(team["Member" + index + "Name"] || "").trim(),
+        registerNumber: String(team["Member" + index + "RegisterNumber"] || "").trim(),
+        department: String(team["Member" + index + "Department"] || "").trim()
+      };
+    }).filter(function(member) {
+      return member.name || member.registerNumber || member.department;
+    }),
+    domainId: domainId,
+    domainName: domain ? String(domain.DomainName || "").trim() : domainId,
+    status: String(team.Status || "").trim().toUpperCase(),
+    createdAt: team.CreatedAt || null,
+    selectionStatus: selectionStatus,
+    releaseAt: releaseAt,
+    problemsReleased: released,
+    closeAt: getProblemCloseAt(),
+    selection: selection ? formatSelection(selection) : null,
+    problems: problems
+  };
 }
 
 

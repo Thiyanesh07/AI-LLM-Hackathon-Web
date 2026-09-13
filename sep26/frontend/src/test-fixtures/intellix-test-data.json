@@ -1,0 +1,37 @@
+{
+  "admins": [
+    { "email": "admin.test@bitsathy.ac.in", "status": "ACTIVE" },
+    { "email": "admin2.test@bitsathy.ac.in", "status": "ACTIVE" },
+    { "email": "student.test@bitsathy.ac.in", "status": "NOT ADMIN" }
+  ],
+  "teams": [
+    { "teamId": "BIT-AI-TEST-001", "teamName": "Agri Test Team", "leaderName": "Agri Leader", "leaderEmail": "leader.agr@bitsathy.ac.in", "leaderRegisterNumber": "AGR001", "leaderDepartment": "CSE", "members": [{ "name": "Agri Member", "registerNumber": "AGR002", "department": "IT" }], "domainId": "AGR", "status": "ACTIVE" },
+    { "teamId": "BIT-AI-TEST-002", "teamName": "Education Test Team", "leaderName": "Education Leader", "leaderEmail": "leader.edu@bitsathy.ac.in", "leaderRegisterNumber": "EDU001", "leaderDepartment": "CSE", "members": [{ "name": "Education Member", "registerNumber": "EDU002", "department": "ECE" }], "domainId": "EDU", "status": "ACTIVE" },
+    { "teamId": "BIT-AI-TEST-003", "teamName": "Agri Test Team 2", "leaderName": "Agri Leader 2", "leaderEmail": "leader.agr2@bitsathy.ac.in", "leaderRegisterNumber": "AGR003", "leaderDepartment": "CSE", "members": [{ "name": "Agri Member 2", "registerNumber": "AGR004", "department": "IT" }], "domainId": "AGR", "status": "ACTIVE" }
+  ],
+  "problems": [
+    { "psid": "AGR-01", "domainId": "AGR", "title": "Synthetic Agriculture Problem 01", "description": "Synthetic problem used for local testing.", "whatToBuild": "Build a test LLM/RAG solution.", "status": "ACTIVE" },
+    { "psid": "AGR-02", "domainId": "AGR", "title": "Synthetic Agriculture Problem 02", "description": "Synthetic problem used for local testing.", "whatToBuild": "Build a test planning solution.", "status": "ACTIVE" },
+    { "psid": "AGR-03", "domainId": "AGR", "title": "Synthetic Agriculture Problem 03", "description": "Synthetic disabled problem.", "whatToBuild": "Build a test solution.", "status": "DISABLED" },
+    { "psid": "AGR-04", "domainId": "AGR", "title": "Synthetic Agriculture Problem 04", "description": "Synthetic problem used for concurrency testing.", "whatToBuild": "Build a test collaboration solution.", "status": "ACTIVE" },
+    { "psid": "EDU-01", "domainId": "EDU", "title": "Synthetic Education Problem 01", "description": "Synthetic education problem.", "whatToBuild": "Build a test learning solution.", "status": "ACTIVE" },
+    { "psid": "EDU-02", "domainId": "EDU", "title": "Synthetic Education Problem 02", "description": "Synthetic education problem.", "whatToBuild": "Build a test knowledge solution.", "status": "ACTIVE" },
+    { "psid": "GOV-01", "domainId": "GOV", "title": "Synthetic Government Problem 01", "description": "Synthetic government problem.", "whatToBuild": "Build a test public service solution.", "status": "ACTIVE" }
+  ],
+  "selections": [],
+  "domains": [
+    { "domainId": "AGR", "domainName": "Agriculture & Rural Development", "maximumTeams": 30, "status": "ACTIVE" },
+    { "domainId": "EMP", "domainName": "Skills, Employment & Entrepreneurship", "maximumTeams": 30, "status": "ACTIVE" },
+    { "domainId": "EDU", "domainName": "Education & Knowledge", "maximumTeams": 30, "status": "ACTIVE" },
+    { "domainId": "GOV", "domainName": "Government & Public Services", "maximumTeams": 30, "status": "ACTIVE" }
+  ],
+  "config": {
+    "HackathonStatus": "REGISTRATION_OPEN",
+    "ProblemReleaseDate": "2026-09-11",
+    "ProblemReleaseTime": "10:00:00",
+    "SelectionStatus": "OPEN",
+    "REGISTRATION_ENABLED": "TRUE",
+    "REGISTRATION_DEADLINE": "2026-09-12T12:00:00+05:30",
+    "PROBLEM_CLOSE_DATETIME": "2026-09-11T18:00:00+05:30"
+  }
+}

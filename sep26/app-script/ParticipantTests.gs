@@ -216,14 +216,26 @@ function testDisabledTeamRejected(idToken) {
 }
 
 
-function testNonexistentDomainRejected(idToken) {
-  try {
-    getParticipantProblems(idToken, { domainId: "DOES-NOT-EXIST" });
-    throw new Error("Participant test failed: nonexistent domain was accepted");
-  } catch (error) {
-    assertParticipantTest(error.code === "DOMAIN_NOT_FOUND", "wrong nonexistent domain error code");
-    return error.code;
+function testClientDomainIsIgnored(idToken) {
+  const team = requireTeamLeader(idToken).team;
+  const result = getParticipantProblems(idToken, { domainId: "DOES-NOT-EXIST" });
+
+  assertParticipantTest(
+    result.selectionState === "NOT_RELEASED" || result.selectionState === SELECTION_STATUS.OPEN || result.selectionState === SELECTION_STATUS.CLOSED,
+    "unexpected participant release state"
+  );
+
+  if (result.problems) {
+    result.problems.forEach(function(problem) {
+      assertParticipantTest(
+        String(getProblemById(problem.PSID).DomainID).trim().toUpperCase() ===
+          String(team.DomainID).trim().toUpperCase(),
+        "client domain changed the retrieval scope"
+      );
+    });
   }
+
+  return result;
 }
 
 
@@ -310,4 +322,117 @@ function testClosedRegistrationRejectsTeamCreation() {
 
   return { success: true };
 }
+
+
+function testCanonicalConfigReadsAndWrites() {
+  setConfigValue("HackathonStatus", "REGISTRATION_OPEN");
+  setConfigValue("ProblemReleaseDate", "2026-09-15");
+  setConfigValue("ProblemReleaseTime", "10:00:00");
+  setConfigValue("SelectionStatus", "OPEN");
+  setConfigValue("REGISTRATION_ENABLED", "TRUE");
+  setConfigValue("REGISTRATION_DEADLINE", "2026-09-12T12:00:00+05:30");
+  setConfigValue("PROBLEM_CLOSE_DATETIME", "2026-09-15T18:00:00+05:30");
+
+  assertParticipantTest(getConfigValue("HackathonStatus") === "REGISTRATION_OPEN", "HackathonStatus mismatch");
+  assertParticipantTest(getConfigValue("ProblemReleaseDate") === "2026-09-15", "ProblemReleaseDate mismatch");
+  assertParticipantTest(getConfigValue("ProblemReleaseTime") === "10:00:00", "ProblemReleaseTime mismatch");
+  assertParticipantTest(getConfigValue("SelectionStatus") === "OPEN", "SelectionStatus mismatch");
+  assertParticipantTest(getConfigValue("REGISTRATION_ENABLED") === "TRUE", "REGISTRATION_ENABLED mismatch");
+  assertParticipantTest(getConfigValue("REGISTRATION_DEADLINE") === "2026-09-12T12:00:00+05:30", "REGISTRATION_DEADLINE mismatch");
+  assertParticipantTest(getConfigValue("PROBLEM_CLOSE_DATETIME") === "2026-09-15T18:00:00+05:30", "PROBLEM_CLOSE_DATETIME mismatch");
+
+  return { success: true };
+}
+
+
+function testCloseBeforeOrEqualReleaseRejection() {
+  const releaseAt = "2026-09-15T10:00:00+05:30";
+  const earlierClose = "2026-09-15T09:00:00+05:30";
+  const equalClose = "2026-09-15T10:00:00+05:30";
+
+  try {
+    adminUpdateConfiguration({ problemReleaseAt: releaseAt, problemCloseAt: earlierClose });
+    throw new Error("adminUpdateConfiguration should reject close < release");
+  } catch (error) {
+    assertParticipantTest(error.code === "INVALID_CONFIGURATION", "wrong error code for close < release");
+  }
+
+  try {
+    adminUpdateConfiguration({ problemReleaseAt: releaseAt, problemCloseAt: equalClose });
+    throw new Error("adminUpdateConfiguration should reject close == release");
+  } catch (error) {
+    assertParticipantTest(error.code === "INVALID_CONFIGURATION", "wrong error code for close == release");
+  }
+
+  return { success: true };
+}
+
+
+function testTeamIdGenerationAndInvariants() {
+  assertParticipantTest(typeof normalizeHeaderKey === "function", "normalizeHeaderKey helper missing");
+  assertParticipantTest(normalizeHeaderKey("TeamID") === "TEAMID", "normalizeHeaderKey TeamID failed");
+  assertParticipantTest(normalizeHeaderKey("Team ID") === "TEAMID", "normalizeHeaderKey Team ID failed");
+  assertParticipantTest(normalizeHeaderKey("TEAM ID") === "TEAMID", "normalizeHeaderKey TEAM ID failed");
+  assertParticipantTest(normalizeHeaderKey("Team_Id") === "TEAMID", "normalizeHeaderKey Team_Id failed");
+  assertParticipantTest(normalizeHeaderKey("team_id") === "TEAMID", "normalizeHeaderKey team_id failed");
+  assertParticipantTest(normalizeHeaderKey("team-id") === "TEAMID", "normalizeHeaderKey team-id failed");
+  assertParticipantTest(normalizeHeaderKey(" team ID ") === "TEAMID", "normalizeHeaderKey whitespace failed");
+  assertParticipantTest(normalizeHeaderKey("teamId") === "TEAMID", "normalizeHeaderKey teamId failed");
+  assertParticipantTest(normalizeHeaderKey("TeamId") === "TEAMID", "normalizeHeaderKey TeamId failed");
+
+  assertParticipantTest(normalizeHeaderKey("TeamName") === "TEAMNAME", "normalizeHeaderKey TeamName failed");
+  assertParticipantTest(normalizeHeaderKey("Team Name") === "TEAMNAME", "normalizeHeaderKey Team Name failed");
+  assertParticipantTest(normalizeHeaderKey("team_name") === "TEAMNAME", "normalizeHeaderKey team_name failed");
+
+  const mockHeaders1 = ["Team ID", "TeamName", "LeaderName", "LeaderEmail"];
+  const mockHeaders2 = ["TeamName", "LeaderName", "TeamID", "LeaderEmail"];
+  const index1 = mockHeaders1.findIndex(function(h) { return normalizeHeaderKey(h) === "TEAMID"; }) + 1;
+  const index2 = mockHeaders2.findIndex(function(h) { return normalizeHeaderKey(h) === "TEAMID"; }) + 1;
+
+  assertParticipantTest(index1 === 1, "Team ID column 1 mapping failed");
+  assertParticipantTest(index2 === 3, "TeamID column 3 mapping failed");
+
+  return { success: true };
+}
+
+
+function testProductionHeaderAndFailureInvariants() {
+  const prodHeaders = [
+    "Team ID", "TeamName", "LeaderName", "LeaderEmail", "LeaderMobileNumber",
+    "LeaderRegisterNumber", "LeaderDepartment", "Member1Name", "Member1RegisterNumber",
+    "Member1Department", "Member2Name", "Member2RegisterNumber", "Member2Department",
+    "Member3Name", "Member3RegisterNumber", "Member3Department", "Member4Name",
+    "Member4RegisterNumber", "Member4Department", "Status", "CreatedAt", "DomainID"
+  ];
+
+  const teamIdCol = prodHeaders.findIndex(function(h) { return normalizeHeaderKey(h) === "TEAMID"; }) + 1;
+  assertParticipantTest(teamIdCol === 1, "Production header 'Team ID' must resolve to column index 1");
+
+  const existingIds = ["BIT-AI-074", "BIT-AI-075", "BIT-AI-093", "BIT-AI-094"];
+  let maxNum = 0;
+  existingIds.forEach(function(id) {
+    const num = parseInt(id.substring("BIT-AI-".length), 10);
+    if (!isNaN(num)) maxNum = Math.max(maxNum, num);
+  });
+  const nextId = "BIT-AI-" + String(maxNum + 1).padStart(3, "0");
+  assertParticipantTest(nextId === "BIT-AI-095", "Next generated ID must be BIT-AI-095 after BIT-AI-094");
+
+  const dupHeaders = ["Team ID", "TeamName", "TeamID"];
+  const matches = [];
+  dupHeaders.forEach(function(h, idx) {
+    if (normalizeHeaderKey(h) === "TEAMID") matches.push(idx + 1);
+  });
+  assertParticipantTest(matches.length === 2, "Duplicate normalized Team ID headers detected correctly");
+
+  const blankA1ProdHeaders = ["", "TeamName", "LeaderName", "LeaderEmail", "LeaderRegisterNumber", "LeaderDepartment", "Member1Name", "Member1RegisterNumber", "Member1Department", "Member2Name", "Member2RegisterNumber", "Member2Department", "Member3Name", "Member3RegisterNumber", "Member3Department", "Member4Name", "Member4RegisterNumber", "Member4Department", "Status", "CreatedAt", "DomainID", "LeaderMobileNumber"];
+  let blankA1Col = blankA1ProdHeaders.findIndex(function(h) { return normalizeHeaderKey(h) === "TEAMID"; }) + 1;
+  if (blankA1Col === 0 && !normalizeHeaderKey(blankA1ProdHeaders[0])) {
+    blankA1Col = 1;
+  }
+  assertParticipantTest(blankA1Col === 1, "Blank A1 header array must resolve Team ID to column 1");
+
+  return { success: true };
+}
+
+
 

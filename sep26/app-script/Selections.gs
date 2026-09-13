@@ -18,38 +18,46 @@ function validateSelectionRequest(data) {
 
 function getSelectionByTeamId(teamId) {
   const normalizedTeamId = String(teamId || "").trim();
+  if (!normalizedTeamId || normalizedTeamId.toLowerCase() === "undefined") return null;
 
   return getSheetRecords(SHEET_NAMES.SELECTIONS).find(function(selection) {
-    return String(selection.TeamID).trim() === normalizedTeamId;
+    const sTeamId = String(selection.TeamID || selection.teamId || selection["Team ID"] || "").trim();
+    return sTeamId === normalizedTeamId;
   }) || null;
 }
 
 
 function getLockedSelectionByTeamId(teamId) {
   const normalizedTeamId = String(teamId || "").trim();
+  if (!normalizedTeamId || normalizedTeamId.toLowerCase() === "undefined") return null;
 
   return getSheetRecords(SHEET_NAMES.SELECTIONS).find(function(selection) {
-    return String(selection.TeamID).trim() === normalizedTeamId &&
-      String(selection.Status).trim().toUpperCase() === SELECTION_STATUS.LOCKED;
+    const sTeamId = String(selection.TeamID || selection.teamId || selection["Team ID"] || "").trim();
+    return sTeamId === normalizedTeamId &&
+      String(selection.Status || selection.status || "").trim().toUpperCase() === SELECTION_STATUS.LOCKED;
   }) || null;
 }
 
 
 function getSelectionByProblemId(psId) {
   const normalizedPsId = String(psId || "").trim().toUpperCase();
+  if (!normalizedPsId) return null;
 
   return getSheetRecords(SHEET_NAMES.SELECTIONS).find(function(selection) {
-    return String(selection.PSID).trim().toUpperCase() === normalizedPsId;
+    const sPsId = String(selection.PSID || selection.psId || "").trim().toUpperCase();
+    return sPsId === normalizedPsId;
   }) || null;
 }
 
 
 function getLockedSelectionByProblemId(psId) {
   const normalizedPsId = String(psId || "").trim().toUpperCase();
+  if (!normalizedPsId) return null;
 
   return getSheetRecords(SHEET_NAMES.SELECTIONS).find(function(selection) {
-    return String(selection.PSID).trim().toUpperCase() === normalizedPsId &&
-      String(selection.Status).trim().toUpperCase() === SELECTION_STATUS.LOCKED;
+    const sPsId = String(selection.PSID || selection.psId || "").trim().toUpperCase();
+    return sPsId === normalizedPsId &&
+      String(selection.Status || selection.status || "").trim().toUpperCase() === SELECTION_STATUS.LOCKED;
   }) || null;
 }
 
@@ -95,8 +103,6 @@ function formatSelection(selection) {
 
 
 function selectProblem(idToken, data) {
-  // Authenticate before entering the transaction, then repeat all critical
-  // state checks after acquiring the lock.
   requireTeamLeader(idToken);
   const request = validateSelectionRequest(data);
 
@@ -106,8 +112,15 @@ function selectProblem(idToken, data) {
   try {
     const authorization = requireTeamLeader(idToken);
     const team = authorization.team;
-    const domain = getDomainById(request.domainId);
+    const teamId = String(
+      team && (team.teamId || team.TeamID || team["Team ID"] || team.TeamId) || ""
+    ).trim();
 
+    if (!teamId || teamId.toLowerCase() === "undefined" || teamId.toLowerCase() === "null") {
+      throwApiError("Team ID is missing before selection persistence.", "SELECTION_TEAM_ID_MISSING");
+    }
+
+    const domain = getDomainById(request.domainId);
     if (!domain) {
       throwApiError("The requested domain was not found.", "DOMAIN_NOT_FOUND");
     }
@@ -128,7 +141,6 @@ function selectProblem(idToken, data) {
     }
 
     const problem = getProblemById(request.psId);
-
     if (!problem) {
       throwApiError("The requested problem was not found.", "PROBLEM_NOT_FOUND");
     }
@@ -137,14 +149,17 @@ function selectProblem(idToken, data) {
       throwApiError("The requested problem is disabled.", "PROBLEM_DISABLED");
     }
 
-    if (String(problem.DomainID).trim().toUpperCase() !== request.domainId) {
+    const probDomain = String(problem.DomainID || "").trim().toUpperCase();
+    const domainName = String(domain.DomainName || "").trim().toUpperCase();
+    const psIdPrefix = String(problem.PSID || "").trim().toUpperCase();
+    if (probDomain !== request.domainId && probDomain !== domainName && !psIdPrefix.startsWith(request.domainId + "-")) {
       throwApiError(
         "The problem does not belong to the requested domain.",
         "PROBLEM_DOMAIN_MISMATCH"
       );
     }
 
-    if (getLockedSelectionByTeamId(team.TeamID)) {
+    if (getLockedSelectionByTeamId(teamId)) {
       throwApiError(
         "This team already has a locked problem.",
         "TEAM_ALREADY_HAS_SELECTION"
@@ -169,18 +184,30 @@ function selectProblem(idToken, data) {
     }
 
     const selectedAt = new Date();
-    getSheet(SHEET_NAMES.SELECTIONS).appendRow([
-      String(team.TeamID).trim(),
+    const sheet = getSheet(SHEET_NAMES.SELECTIONS);
+    sheet.appendRow([
+      teamId,
       request.domainId,
       String(problem.PSID).trim(),
       selectedAt,
       SELECTION_STATUS.LOCKED
     ]);
+    SpreadsheetApp.flush();
+
+    const lastRowIndex = sheet.getLastRow();
+    const writtenRowValues = sheet.getRange(lastRowIndex, 1, 1, 5).getValues()[0];
+    const writtenTeamId = String(writtenRowValues[0] || "").trim();
+    if (writtenTeamId !== teamId) {
+      throwApiError(
+        "Selection persistence failed: expected TeamID " + teamId + ", found " + (writtenTeamId || "[blank]") + ".",
+        "SELECTION_PERSISTENCE_FAILED"
+      );
+    }
 
     return {
       success: true,
       data: formatSelection({
-        TeamID: team.TeamID,
+        TeamID: teamId,
         DomainID: request.domainId,
         PSID: problem.PSID,
         SelectedAt: selectedAt,
@@ -195,7 +222,10 @@ function selectProblem(idToken, data) {
 
 function getMySelection(idToken) {
   const authorization = requireTeamLeader(idToken);
-  const selection = getLockedSelectionByTeamId(authorization.team.TeamID);
+  const teamId = String(
+    authorization.team && (authorization.team.teamId || authorization.team.TeamID || authorization.team["Team ID"]) || ""
+  ).trim();
+  const selection = getLockedSelectionByTeamId(teamId);
 
   return {
     success: true,
@@ -204,4 +234,136 @@ function getMySelection(idToken) {
       selection: formatSelection(selection)
     }
   };
+}
+
+
+function lockProblem(idToken, data) {
+  const authorization = requireTeamLeader(idToken);
+  const initialTeam = authorization.team;
+  const teamId = String(
+    initialTeam && (initialTeam.teamId || initialTeam.TeamID || initialTeam["Team ID"] || initialTeam.TeamId) || ""
+  ).trim();
+
+  if (!teamId || teamId.toLowerCase() === "undefined" || teamId.toLowerCase() === "null") {
+    throwApiError("Team ID is missing before selection persistence.", "SELECTION_TEAM_ID_MISSING");
+  }
+
+  const psId = String(data && (data.psid || data.psId || data.PSID) || "")
+    .trim()
+    .toUpperCase();
+
+  if (!psId) {
+    throwApiError("A problem identifier is required.", "INVALID_REQUEST");
+  }
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+
+  try {
+    const auth = requireTeamLeader(idToken);
+    const team = auth.team;
+    const currentTeamId = String(
+      team && (team.teamId || team.TeamID || team["Team ID"] || team.TeamId) || ""
+    ).trim();
+
+    if (!currentTeamId || currentTeamId.toLowerCase() === "undefined" || currentTeamId.toLowerCase() === "null") {
+      throwApiError("Team ID is missing before selection persistence.", "SELECTION_TEAM_ID_MISSING");
+    }
+
+    if (!isSelectionOpen()) {
+      throwApiError("Problem selection is closed.", "SELECTION_CLOSED");
+    }
+
+    if (!isProblemReleased()) {
+      throwApiError("Problem statements have not been released yet.", "PROBLEMS_NOT_RELEASED");
+    }
+
+    const existingTeamSelection = getLockedSelectionByTeamId(currentTeamId);
+    if (existingTeamSelection) {
+      throwApiError("Your team has already locked a problem.", "TEAM_ALREADY_LOCKED");
+    }
+
+    const problem = getProblemById(psId);
+    if (!problem) {
+      throwApiError("The requested problem was not found.", "INVALID_PROBLEM");
+    }
+
+    const teamDomainId = String(team.DomainID || "").trim().toUpperCase();
+    const problemDomainId = String(problem.DomainID || "").trim().toUpperCase();
+    const psIdUpper = String(problem.PSID || "").trim().toUpperCase();
+
+    if (!teamDomainId || teamDomainId.toLowerCase() === "undefined" || teamDomainId.toLowerCase() === "null") {
+      throwApiError("Domain ID is missing before selection persistence.", "SELECTION_DOMAIN_ID_MISSING");
+    }
+
+    const teamDomainObj = getDomainById(teamDomainId);
+    const teamDomainName = teamDomainObj ? String(teamDomainObj.DomainName || "").trim().toUpperCase() : "";
+    const domainMatches =
+      problemDomainId === teamDomainId ||
+      (teamDomainName && problemDomainId === teamDomainName) ||
+      psIdUpper.startsWith(teamDomainId + "-");
+
+    if (!domainMatches) {
+      throwApiError("The requested problem is not available for your registered domain.", "WRONG_DOMAIN");
+    }
+
+    if (String(problem.Status || "").trim().toUpperCase() !== PROBLEM_STATUS.ACTIVE) {
+      throwApiError("The requested problem is not available.", "PROBLEM_DISABLED");
+    }
+
+    if (getLockedSelectionByProblemId(psId)) {
+      throwApiError("This problem has already been locked by another team.", "PROBLEM_ALREADY_LOCKED");
+    }
+
+    const domain = getDomainById(teamDomainId);
+    if (!domain || String(domain.Status || "").trim().toUpperCase() !== DOMAIN_STATUS.ACTIVE) {
+      throwApiError("Your registered domain is not available.", "DOMAIN_DISABLED");
+    }
+
+    const maximumTeams = parsePositiveInteger(domain.MaximumTeams);
+    if (getLockedSelectionCountByDomain(teamDomainId) >= maximumTeams) {
+      throwApiError("Your registered domain has reached capacity.", "DOMAIN_CAPACITY_REACHED");
+    }
+
+    const selectedAt = new Date();
+    const sheet = getSheet(SHEET_NAMES.SELECTIONS);
+
+    sheet.appendRow([
+      currentTeamId,
+      teamDomainId,
+      psIdUpper,
+      selectedAt,
+      SELECTION_STATUS.LOCKED
+    ]);
+    SpreadsheetApp.flush();
+
+    const lastRowIndex = sheet.getLastRow();
+    const writtenValues = sheet.getRange(lastRowIndex, 1, 1, 5).getValues()[0];
+    const writtenTeamId = String(writtenValues[0] || "").trim();
+    const writtenDomainId = String(writtenValues[1] || "").trim().toUpperCase();
+    const writtenPsId = String(writtenValues[2] || "").trim().toUpperCase();
+    const writtenStatus = String(writtenValues[4] || "").trim().toUpperCase();
+
+    if (
+      writtenTeamId !== currentTeamId ||
+      writtenDomainId !== teamDomainId ||
+      writtenPsId !== psIdUpper ||
+      writtenStatus !== SELECTION_STATUS.LOCKED
+    ) {
+      throwApiError(
+        "Selection persistence failed: expected TeamID " + currentTeamId + ", found " + (writtenTeamId || "[blank]") + ".",
+        "SELECTION_PERSISTENCE_FAILED"
+      );
+    }
+
+    return formatSelection({
+      TeamID: currentTeamId,
+      DomainID: teamDomainId,
+      PSID: psIdUpper,
+      SelectedAt: selectedAt,
+      Status: SELECTION_STATUS.LOCKED
+    });
+  } finally {
+    lock.releaseLock();
+  }
 }

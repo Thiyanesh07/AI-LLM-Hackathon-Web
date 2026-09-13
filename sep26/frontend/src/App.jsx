@@ -9,7 +9,7 @@ import AdminPortal from "./components/AdminPortal";
 function getPageFromPath() {
   const path = window.location.pathname.toLowerCase();
   if (path === "/register") return "register";
-  if (path === "/participant") return "participant";
+  if (path === "/teams" || path === "/participant") return "teams";
   if (path === "/admin") return "admin";
   return "home";
 }
@@ -31,7 +31,7 @@ function App() {
     setPage(newPage);
     let targetPath = "/";
     if (newPage === "register") targetPath = "/register";
-    else if (newPage === "participant") targetPath = "/participant";
+    else if (newPage === "teams") targetPath = "/teams";
     else if (newPage === "admin") targetPath = "/admin";
 
     if (window.location.pathname !== targetPath) {
@@ -41,7 +41,7 @@ function App() {
 
   return (
     <div className="min-vh-100 bg-dark text-light d-flex flex-column">
-      <AppNavbar setPage={navigateTo} onNavigate={navigateTo} />
+      {page !== "admin" && <AppNavbar setPage={navigateTo} onNavigate={navigateTo} />}
       <main className="flex-grow-1">
         {page === "home" && (
           <Home setPage={navigateTo} setSelectedDomainId={setSelectedDomainId} />
@@ -58,7 +58,7 @@ function App() {
         {page === "success" && (
           <SuccessScreen registrationData={registrationData} setPage={navigateTo} />
         )}
-        {page === "participant" && <ParticipantPortal setPage={navigateTo} />}
+        {page === "teams" && <ParticipantPortal setPage={navigateTo} />}
         {page === "admin" && <AdminPortal setPage={navigateTo} />}
       </main>
     </div>

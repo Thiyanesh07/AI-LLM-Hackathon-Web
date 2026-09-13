@@ -180,3 +180,76 @@ function testAdminBypassRejected() {
 
   return result;
 }
+
+
+function testAllowSelectionResetEnforcement() {
+  // Ensure ALLOW_SELECTION_RESET is FALSE (safe default).
+  setConfigValue("ALLOW_SELECTION_RESET", "FALSE");
+
+  try {
+    requireSelectionResetAllowed();
+    throw new Error("Admin test failed: reset was allowed when flag is FALSE.");
+  } catch (error) {
+    assertAdminTest(error.code === "RESET_NOT_ALLOWED", "wrong error code when reset disabled");
+  }
+
+  assertAdminTest(!isSelectionResetAllowed(), "isSelectionResetAllowed should be false");
+
+  // Enable the flag.
+  setConfigValue("ALLOW_SELECTION_RESET", "TRUE");
+  assertAdminTest(isSelectionResetAllowed(), "isSelectionResetAllowed should be true after setting TRUE");
+
+  // Restore safe default.
+  setConfigValue("ALLOW_SELECTION_RESET", "FALSE");
+
+  return { success: true };
+}
+
+
+function testAdminSetAllowResetToggle() {
+  setConfigValue("ALLOW_SELECTION_RESET", "FALSE");
+  const enableResult = adminSetAllowSelectionReset("TRUE");
+  assertAdminTest(enableResult.data.allowSelectionReset === true, "enable toggle failed");
+  assertAdminTest(isSelectionResetAllowed(), "flag not TRUE after enable");
+
+  const disableResult = adminSetAllowSelectionReset("FALSE");
+  assertAdminTest(disableResult.data.allowSelectionReset === false, "disable toggle failed");
+  assertAdminTest(!isSelectionResetAllowed(), "flag not FALSE after disable");
+
+  return { success: true };
+}
+
+
+function testAdminRemoveTeamSelectionBlockedWhenFlagFalse() {
+  setConfigValue("ALLOW_SELECTION_RESET", "FALSE");
+
+  try {
+    adminRemoveTeamSelection("SOME-TEAM-ID");
+    throw new Error("Admin test failed: removal succeeded when ALLOW_SELECTION_RESET is FALSE.");
+  } catch (error) {
+    assertAdminTest(error.code === "RESET_NOT_ALLOWED", "wrong error code for removal when flag false");
+  }
+
+  return { success: true };
+}
+
+
+function testAdminRemoveAllSelectionsBlockedWhenFlagFalse() {
+  setConfigValue("ALLOW_SELECTION_RESET", "FALSE");
+
+  try {
+    adminRemoveAllSelections();
+    throw new Error("Admin test failed: remove-all succeeded when ALLOW_SELECTION_RESET is FALSE.");
+  } catch (error) {
+    assertAdminTest(error.code === "RESET_NOT_ALLOWED", "wrong error code for remove-all when flag false");
+  }
+
+  return { success: true };
+}
+
+
+function testAdminConfigIncludesAllowSelectionReset() {
+  const config = getAdminConfiguration();
+  assertAdminTest(typeof config.allowSelectionReset === "boolean", "allowSelectionReset missing from config");
+  return config;
+}

@@ -1,11 +1,13 @@
 const ACTION_MAP = {
   "/register-team": "REGISTER_TEAM",
+  "/team": "GET_TEAM",
   "/domains": "GET_DOMAINS",
   "/get-domains": "GET_DOMAINS",
   "/select-domain": "SELECT_DOMAIN",
   "/problems": "GET_PROBLEMS",
   "/get-problems": "GET_PROBLEMS",
   "/select-problem": "SELECT_PROBLEM",
+  "/lock-problem": "LOCK_PROBLEM",
   "/my-selection": "GET_MY_SELECTION",
   "/get-my-selection": "GET_MY_SELECTION",
   "/admin/stats": "ADMIN_GET_STATS",
@@ -23,7 +25,12 @@ const ACTION_MAP = {
   "/admin/update-domain": "ADMIN_UPDATE_DOMAIN",
   "/admin/release-now": "ADMIN_RELEASE_NOW",
   "/admin/close-selection": "ADMIN_CLOSE_SELECTION",
-  "/admin/open-selection": "ADMIN_OPEN_SELECTION"
+  "/admin/open-selection": "ADMIN_OPEN_SELECTION",
+  "/admin/remove-team-selection": "ADMIN_REMOVE_TEAM_SELECTION",
+  "/admin/remove-selection-by-psid": "ADMIN_REMOVE_SELECTION_BY_PSID",
+  "/admin/remove-all-selections": "ADMIN_REMOVE_ALL_SELECTIONS",
+  "/admin/set-allow-reset": "ADMIN_SET_ALLOW_RESET",
+  "/admin/selections": "ADMIN_GET_SELECTIONS"
 };
 
 export default async function handler(req, res) {

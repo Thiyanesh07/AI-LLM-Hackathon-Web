@@ -33,27 +33,81 @@ const mockDomains = [
   }
 ];
 
-const mockProblems = {
-  AGR: [
-    {
-      PSID: "AGR-01",
-      Title: "Smart Crop Planning",
-      Description: "Create a tool that helps small farms plan seasonal crops.",
-      WhatToBuild: "Build a crop planning dashboard.",
-      DomainID: "AGR"
-    }
-  ],
-  EMP: [],
-  EDU: [],
-  GOV: []
-};
-
-let mockSelection = null;
+const mockLockedSelections = new Map();
 let mockSelectedDomain = null;
 let mockTeamCounter = 0;
 
+const mockProblemConfig = {
+  selectionState: import.meta.env.VITE_MOCK_SELECTION_STATE || "NOT_RELEASED",
+  releaseAt: import.meta.env.VITE_MOCK_RELEASE_AT || "2026-09-15T04:30:00.000Z",
+  problems: [
+    { PSID: "AGR-01", DomainID: "AGR", Title: "Farm Support Finder", Description: "Help farmers discover relevant public support programs.", WhatToBuild: "Build a focused search and guidance experience." },
+    { PSID: "AGR-02", DomainID: "AGR", Title: "Crop Advisory Companion", Description: "Make practical crop advice easier to find and understand.", WhatToBuild: "Build a simple advisory workflow for rural users." },
+    { PSID: "AGR-03", DomainID: "AGR", Title: "Rural Market Link", Description: "Connect small producers with useful local market information.", WhatToBuild: "Build a clear market discovery experience." },
+    { PSID: "EDU-01", DomainID: "EDU", Title: "Learning Path Finder", Description: "Help learners discover relevant learning pathways.", WhatToBuild: "Build a clear education discovery workflow." },
+    { PSID: "EDU-02", DomainID: "EDU", Title: "Campus Knowledge Hub", Description: "Make useful academic resources easier to navigate.", WhatToBuild: "Build a searchable knowledge experience."
+    }
+  ]
+};
+
 const mockRegisteredLeaderEmails = new Set();
 const mockRegisteredRegNumbers = new Set();
+
+const mockTeam = {
+  teamId: "BIT-AI-001",
+  teamName: "IntelliX Builders",
+  leaderName: "Team Leader",
+  leaderEmail: "leader@bitsathy.ac.in",
+  leaderRegisterNumber: "BIT001",
+  leaderDepartment: "CSE",
+  members: [
+    { name: "Member One", registerNumber: "BIT002", department: "IT" }
+  ],
+  domainId: "AGR",
+  domainName: "Agriculture & Rural Development",
+  status: "ACTIVE",
+  createdAt: "2026-09-10T00:00:00.000Z",
+  selectionStatus: mockProblemConfig.selectionState,
+  releaseAt: mockProblemConfig.releaseAt,
+  closeAt: import.meta.env.VITE_MOCK_CLOSE_AT || "2026-09-15T13:30:00.000Z",
+  problemsReleased: mockProblemConfig.selectionState !== "NOT_RELEASED",
+  selection: null
+};
+
+const mockTeams = {
+  "mock-leader1@bitsathy.ac.in": mockTeam,
+  "mock-leader2@bitsathy.ac.in": {
+    ...mockTeam,
+    teamId: "BIT-AI-TEST-002",
+    teamName: "Second Test Team",
+    leaderEmail: "leader2@bitsathy.ac.in"
+  },
+  "mock-edu-leader@bitsathy.ac.in": {
+    ...mockTeam,
+    teamId: "BIT-AI-TEST-003",
+    teamName: "Education Test Team",
+    leaderEmail: "edu@bitsathy.ac.in",
+    domainId: "EDU",
+    domainName: "Education & Knowledge"
+  }
+};
+
+const mockAdminEmail = "mock-admin@bitsathy.ac.in";
+const mockAdminConfig = {
+  registrationEnabled: "TRUE",
+  registrationDeadline: "2026-09-12T12:00:00+05:30",
+  problemReleaseAt: "2026-09-15T04:30:00.000Z",
+  problemCloseAt: import.meta.env.VITE_MOCK_CLOSE_AT || "2026-09-15T13:30:00.000Z",
+  selectionStatus: mockProblemConfig.selectionState === "OPEN" ? "OPEN" : "CLOSED"
+};
+
+let mockAllowSelectionReset = false;
+
+function requireMockAdmin(idToken) {
+  if (!idToken) return failure("AUTH_REQUIRED", "Authentication is required.");
+  if (idToken !== mockAdminEmail) return failure("ADMIN_REQUIRED", "Active administrator access is required.");
+  return null;
+}
 
 function success(data) {
   return Promise.resolve({
@@ -70,23 +124,39 @@ function failure(code, error) {
   });
 }
 
-function selectionFor(problem) {
-  return {
-    teamId: "BIT-AI-001",
-    domainId: problem.DomainID,
-    psId: problem.PSID,
-    selectedAt: "2026-09-10T00:00:00.000Z",
-    status: "LOCKED",
-    problem: {
-      title: problem.Title,
-      description: problem.Description,
-      whatToBuild: problem.WhatToBuild
-    }
-  };
-}
-
 export function apiGetDomains() {
   return success(mockDomains);
+}
+
+export function apiGetTeam(idToken) {
+  if (!idToken) {
+    return failure("AUTH_REQUIRED", "Please sign in with your BIT college account.");
+  }
+
+  if (idToken === "mock-unregistered@bitsathy.ac.in") {
+    return failure("TEAM_NOT_REGISTERED", "No registered team was found for this college account.");
+  }
+
+  if (idToken === "mock-outsider@example.com") {
+    return failure("COLLEGE_EMAIL_REQUIRED", "Only @bitsathy.ac.in Google accounts are allowed.");
+  }
+
+  if (idToken === "mock-invalid-token") {
+    return failure("INVALID_TOKEN", "Invalid or expired Google ID token.");
+  }
+
+  const currentTeam = mockTeams[idToken];
+  if (!currentTeam) {
+    return failure("INVALID_TOKEN", "Invalid or expired Google ID token.");
+  }
+
+  const selection = mockLockedSelections.get(currentTeam.teamId) || null;
+  return success({
+    ...currentTeam,
+    selectionStatus: selection ? "LOCKED" : mockProblemConfig.selectionState,
+    problemsReleased: mockProblemConfig.selectionState !== "NOT_RELEASED",
+    selection
+  });
 }
 
 export function apiSelectDomain(_idToken, dataOrDomainId) {
@@ -120,15 +190,66 @@ export function apiSelectDomain(_idToken, dataOrDomainId) {
   });
 }
 
-export function apiGetProblems(_idToken, data) {
-  const domainId = String(data && data.domainId || "").trim().toUpperCase();
-  const problems = mockProblems[domainId];
+export function apiGetProblems(idToken) {
+  if (!idToken) return failure("AUTH_REQUIRED", "Authentication is required.");
+  const currentTeam = mockTeams[idToken];
+  if (!currentTeam) return failure("TEAM_NOT_REGISTERED", "No registered team was found.");
 
-  if (!problems) {
-    return failure("DOMAIN_NOT_FOUND", "The requested domain was not found.");
+  const state = String(mockProblemConfig.selectionState).toUpperCase();
+  if (state === "NOT_RELEASED") {
+    return success({ selectionState: state, releaseAt: mockProblemConfig.releaseAt });
+  }
+  if (state === "CLOSED") {
+    return success({ selectionState: state, releaseAt: mockProblemConfig.releaseAt, problems: [] });
+  }
+  if (state === "LOCKED" || mockLockedSelections.has(currentTeam.teamId)) {
+    return success({ selectionState: "LOCKED", releaseAt: mockProblemConfig.releaseAt, problems: [] });
   }
 
-  return success(problems);
+  return success({
+    selectionState: "OPEN",
+    releaseAt: mockProblemConfig.releaseAt,
+    problems: mockProblemConfig.problems.filter((problem) =>
+      problem.PSID !== "AGR-03" &&
+      problem.Status !== "DISABLED" &&
+      problem.DomainID === currentTeam.domainId &&
+      ![...mockLockedSelections.values()].some((selection) => selection.psId === problem.PSID)
+    )
+  });
+}
+
+export function apiLockProblem(idToken, data) {
+  if (!idToken) return failure("AUTH_REQUIRED", "Authentication is required.");
+  const currentTeam = mockTeams[idToken];
+  if (!currentTeam) return failure("TEAM_NOT_REGISTERED", "No registered team was found.");
+
+  const psid = String(data?.psid || data?.psId || "").trim().toUpperCase();
+  if (!psid) return failure("INVALID_REQUEST", "A problem identifier is required.");
+  if (mockProblemConfig.selectionState !== "OPEN") return failure("SELECTION_CLOSED", "Problem selection is closed.");
+  if (mockLockedSelections.has(currentTeam.teamId)) return failure("TEAM_ALREADY_LOCKED", "Your team has already locked a problem.");
+
+  const problem = mockProblemConfig.problems.find((candidate) => candidate.PSID === psid);
+  if (!problem) return failure("INVALID_PROBLEM", "The requested problem was not found.");
+  if (problem.PSID === "AGR-03") return failure("PROBLEM_DISABLED", "The requested problem is not available.");
+  if (problem.DomainID !== currentTeam.domainId) return failure("WRONG_DOMAIN", "The requested problem is not available for your registered domain.");
+  if ([...mockLockedSelections.values()].some((selection) => selection.psId === psid)) {
+    return failure("PROBLEM_ALREADY_LOCKED", "This problem has already been locked by another team.");
+  }
+
+  const selection = {
+    teamId: currentTeam.teamId,
+    domainId: currentTeam.domainId,
+    psId: psid,
+    selectedAt: new Date().toISOString(),
+    status: "LOCKED",
+    problem: {
+      title: problem.Title,
+      description: problem.Description,
+      whatToBuild: problem.WhatToBuild
+    }
+  };
+  mockLockedSelections.set(currentTeam.teamId, selection);
+  return success(selection);
 }
 
 let mockRegistrationEnabled = true;
@@ -236,66 +357,88 @@ export function apiRegisterTeam(idToken, data) {
   });
 }
 
-export function apiGetMySelection() {
+export function apiGetMySelection(idToken) {
+  const currentTeam = mockTeams[idToken];
+  const selection = currentTeam ? mockLockedSelections.get(currentTeam.teamId) || null : null;
   return success({
-    hasSelection: mockSelection !== null,
-    selection: mockSelection
+    hasSelection: selection !== null,
+    selection
   });
 }
 
-export function apiSelectProblem(_idToken, data) {
-  if (mockSelection) {
-    return failure(
-      "TEAM_ALREADY_HAS_SELECTION",
-      "This team already has a locked problem."
-    );
-  }
-
-  const domainId = String(data && data.domainId || "").trim().toUpperCase();
-  const psId = String(data && data.psId || "").trim().toUpperCase();
-  const problem = (mockProblems[domainId] || []).find(function(candidate) {
-    return candidate.PSID === psId;
-  });
-
-  if (!problem) {
-    return failure("PROBLEM_NOT_FOUND", "The requested problem was not found.");
-  }
-
-  mockSelection = selectionFor(problem);
-  return success(mockSelection);
+export function apiSelectProblem() {
+  return failure("PROBLEMS_NOT_RELEASED", "Problem selection is not available in the local Phase 5 mock.");
 }
 
 export function apiAdminGetStats() {
+  const denied = requireMockAdmin(arguments[0]);
+  if (denied) return denied;
   return success({
-    registeredTeams: 1,
-    activeTeams: 1,
+    registeredTeams: Object.keys(mockTeams).length,
+    activeTeams: Object.keys(mockTeams).length,
     disabledTeams: 0,
-    lockedSelections: mockSelection ? 1 : 0,
-    pendingTeams: mockSelection ? 0 : 1,
-    totalProblems: 3,
-    activeProblems: 3,
-    disabledProblems: 0,
-    availableProblems: 3,
-    totalActiveDomains: 2,
+    lockedSelections: mockLockedSelections.size,
+    pendingTeams: Math.max(Object.keys(mockTeams).length - mockLockedSelections.size, 0),
+    totalProblems: mockProblemConfig.problems.length,
+    activeProblems: mockProblemConfig.problems.filter((problem) => problem.Status !== "DISABLED").length,
+    disabledProblems: mockProblemConfig.problems.filter((problem) => problem.Status === "DISABLED").length,
+    availableProblems: mockProblemConfig.problems.filter((problem) => problem.Status !== "DISABLED" && ![...mockLockedSelections.values()].some((selection) => selection.psId === problem.PSID)).length,
+    totalActiveDomains: 4,
     domains: mockDomains,
-    selectionStatus: "OPEN",
+    selectionStatus: mockProblemConfig.selectionState === "OPEN" ? "OPEN" : "CLOSED",
     hackathonStatus: "REGISTRATION_OPEN",
-    problemReleaseDate: "2026-09-10",
-    problemReleaseTime: "10:30",
-    problemsReleased: true
+    problemReleaseAt: mockAdminConfig.problemReleaseAt,
+    problemCloseAt: mockAdminConfig.problemCloseAt,
+    selectionState: mockProblemConfig.selectionState,
+    problemsReleased: mockProblemConfig.selectionState !== "NOT_RELEASED"
   });
 }
 
-export function apiAdminGetTeams() {
-  return success([]);
+export function apiAdminGetConfiguration(idToken) {
+  const denied = requireMockAdmin(idToken);
+  return denied || success({ ...mockAdminConfig, selectionState: mockProblemConfig.selectionState, allowSelectionReset: mockAllowSelectionReset });
 }
 
-export function apiAdminAddTeam() {
-  return success({ teamId: "BIT-AI-DEV-002" });
+export function apiAdminUpdateConfiguration(idToken, data) {
+  const denied = requireMockAdmin(idToken);
+  if (denied) return denied;
+  const release = new Date(data?.problemReleaseAt);
+  const close = new Date(data?.problemCloseAt);
+  if (Number.isNaN(release.getTime()) || Number.isNaN(close.getTime()) || close <= release) return failure("INVALID_CONFIGURATION", "Close time must be after release time.");
+  mockAdminConfig.problemReleaseAt = release.toISOString();
+  mockAdminConfig.problemCloseAt = close.toISOString();
+  return success({ ...mockAdminConfig });
 }
 
-export function apiAdminUpdateTeam() {
-  return success({ teamId: "BIT-AI-001" });
+export function apiAdminGetTeams(idToken) {
+  const denied = requireMockAdmin(idToken);
+  if (denied) return denied;
+  return success(Object.values(mockTeams).map((team) => ({ TeamID: team.teamId, TeamName: team.teamName, LeaderName: team.leaderName, DomainID: team.domainId, Status: team.status, Selection: mockLockedSelections.get(team.teamId) || null })));
+}
+
+export function apiAdminAddTeam(idToken, data) {
+  const denied = requireMockAdmin(idToken);
+  if (denied) return denied;
+  if (!data?.teamName || !data?.leaderEmail || !data?.leaderRegisterNumber) return failure("INVALID_TEAM_DATA", "Team and leader fields are required.");
+  const email = String(data.leaderEmail).toLowerCase();
+  if (Object.values(mockTeams).some((team) => team.leaderEmail === email)) return failure("TEAM_ALREADY_REGISTERED", "This team leader email is already registered.");
+  const teamId = `BIT-AI-TEST-${String(++mockTeamCounter).padStart(3, "0")}`;
+  const domain = mockDomains.find((item) => item.domainId === String(data.domainId || "").toUpperCase());
+  if (!domain) return failure("DOMAIN_NOT_FOUND", "The requested domain was not found.");
+  const team = { teamId, teamName: data.teamName, leaderName: data.leaderName, leaderEmail: email, leaderMobile: data.leaderMobile, leaderRegisterNumber: data.leaderRegisterNumber, leaderDepartment: data.leaderDepartment, members: data.members || [], domainId: domain.domainId, domainName: domain.domainName, status: "ACTIVE", createdAt: new Date().toISOString(), selection: null };
+  mockTeams[email] = team;
+  return success({ teamId, teamName: team.teamName, domainId: team.domainId, status: team.status });
+}
+
+export function apiAdminUpdateTeam(idToken, data) {
+  const denied = requireMockAdmin(idToken);
+  if (denied) return denied;
+  const team = Object.values(mockTeams).find((item) => item.teamId === (data?.TeamID || data?.teamId));
+  if (!team) return failure("TEAM_NOT_FOUND", "The requested team was not found.");
+  const locked = mockLockedSelections.get(team.teamId);
+  if (locked && data.domainId && data.domainId !== team.domainId) return failure("TEAM_ALREADY_ALLOCATED", "A team with a locked problem cannot change domain.");
+  Object.assign(team, { teamName: data.teamName, leaderName: data.leaderName, leaderEmail: data.leaderEmail, leaderMobile: data.leaderMobile, leaderRegisterNumber: data.leaderRegisterNumber, leaderDepartment: data.leaderDepartment, domainId: data.domainId, members: data.members || team.members });
+  return success({ ...team, TeamID: team.teamId, TeamName: team.teamName, DomainID: team.domainId });
 }
 
 export function apiAdminEnableTeam(_idToken, data) {
@@ -307,41 +450,148 @@ export function apiAdminDisableTeam(_idToken, data) {
 }
 
 export function apiAdminGetProblems() {
-  return success(Object.values(mockProblems).flat());
+  const denied = requireMockAdmin(arguments[0]);
+  if (denied) return denied;
+  return success(mockProblemConfig.problems.map((problem) => ({
+    ...problem,
+    Status: problem.Status || (problem.PSID === "AGR-03" ? "DISABLED" : "ACTIVE")
+  })));
 }
 
-export function apiAdminAddProblem() {
-  return success({ psId: "AGR-03" });
+export function apiAdminAddProblem(idToken, data) {
+  const denied = requireMockAdmin(idToken);
+  if (denied) return denied;
+  const domainId = String(data?.domainId || "").toUpperCase();
+  if (!mockDomains.some((domain) => domain.domainId === domainId)) return failure("DOMAIN_NOT_FOUND", "The requested domain was not found.");
+  if (!data?.title || !data?.description || !data?.whatToBuild) return failure("INVALID_PROBLEM_DATA", "Problem fields are required.");
+  const psId = `${domainId}-${String(mockProblemConfig.problems.length + 1).padStart(2, "0")}`;
+  const problem = { PSID: psId, DomainID: domainId, Title: data.title, Description: data.description, WhatToBuild: data.whatToBuild };
+  mockProblemConfig.problems.push(problem);
+  return success(problem);
 }
 
-export function apiAdminUpdateProblem(_idToken, data) {
-  return success({ psId: data && (data.psId || data.PSID) });
+export function apiAdminUpdateProblem(idToken, data) {
+  const denied = requireMockAdmin(idToken);
+  if (denied) return denied;
+  const problem = mockProblemConfig.problems.find((item) => item.PSID === String(data?.psId || "").toUpperCase());
+  if (!problem) return failure("PROBLEM_NOT_FOUND", "The requested problem was not found.");
+  Object.assign(problem, { Title: data.title, Description: data.description, WhatToBuild: data.whatToBuild });
+  return success(problem);
 }
 
 export function apiAdminEnableProblem(_idToken, data) {
-  return success({ psId: data && (data.psId || data.PSID), status: "ACTIVE" });
+  return success({ psId: data && data.psId, status: "ACTIVE" });
 }
 
-export function apiAdminDisableProblem(_idToken, data) {
-  return success({ psId: data && (data.psId || data.PSID), status: "DISABLED" });
+export function apiAdminDisableProblem(idToken, data) {
+  const denied = requireMockAdmin(idToken);
+  if (denied) return denied;
+  const problem = mockProblemConfig.problems.find((item) => item.PSID === String(data?.psId || "").toUpperCase());
+  if (!problem) return failure("PROBLEM_NOT_FOUND", "The requested problem was not found.");
+  problem.Status = "DISABLED";
+  return success({ ...problem, status: "DISABLED" });
 }
 
-export function apiAdminGetDomains() {
-  return success(mockDomains);
+export function apiAdminGetDomains(idToken) {
+  const denied = requireMockAdmin(idToken);
+  return denied || success(mockDomains);
 }
 
-export function apiAdminUpdateDomain(_idToken, data) {
-  return success({ domainId: data && (data.domainId || data.DomainID) });
+export function apiAdminUpdateDomain(idToken, data) {
+  const denied = requireMockAdmin(idToken);
+  if (denied) return denied;
+  const domain = mockDomains.find((item) => item.domainId === String(data?.domainId || data?.DomainID || "").toUpperCase());
+  if (!domain) return failure("DOMAIN_NOT_FOUND", "The requested domain was not found.");
+  const maximumTeams = Number(data.maximumTeams);
+  if (!Number.isInteger(maximumTeams) || maximumTeams < domain.currentLockedTeams) return failure("CAPACITY_BELOW_USAGE", "Capacity cannot be lower than current usage.");
+  Object.assign(domain, { maximumTeams, remainingCapacity: maximumTeams - domain.currentLockedTeams, available: data.status === "ACTIVE" && maximumTeams > domain.currentLockedTeams, domainName: data.domainName, status: data.status });
+  return success(domain);
 }
 
-export function apiAdminReleaseNow() {
-  return success({ problemsReleased: true });
+export function apiAdminReleaseNow(idToken) {
+  const denied = requireMockAdmin(idToken);
+  if (denied) return denied;
+  mockProblemConfig.selectionState = "OPEN";
+  mockAdminConfig.selectionStatus = "OPEN";
+  return success({ problemsReleased: true, selectionState: "OPEN" });
 }
 
-export function apiAdminCloseSelection() {
-  return success({ selectionStatus: "CLOSED" });
+export function apiAdminCloseSelection(idToken) {
+  const denied = requireMockAdmin(idToken);
+  if (denied) return denied;
+  mockProblemConfig.selectionState = "CLOSED";
+  mockAdminConfig.selectionStatus = "CLOSED";
+  return success({ selectionStatus: "CLOSED", selectionState: "CLOSED" });
 }
 
-export function apiAdminOpenSelection() {
-  return success({ selectionStatus: "OPEN" });
+export function apiAdminOpenSelection(idToken) {
+  const denied = requireMockAdmin(idToken);
+  if (denied) return denied;
+  mockProblemConfig.selectionState = "OPEN";
+  mockAdminConfig.selectionStatus = "OPEN";
+  return success({ selectionStatus: "OPEN", selectionState: "OPEN" });
+}
+
+export function apiAdminSetAllowReset(idToken, data) {
+  const denied = requireMockAdmin(idToken);
+  if (denied) return denied;
+  const flag = String(
+    data && (data.allowSelectionReset !== undefined ? data.allowSelectionReset : data.flag) || ""
+  ).trim().toUpperCase();
+  if (flag !== "TRUE" && flag !== "FALSE") {
+    return failure("INVALID_CONFIGURATION", "ALLOW_SELECTION_RESET must be TRUE or FALSE.");
+  }
+  mockAllowSelectionReset = flag === "TRUE";
+  return success({ allowSelectionReset: mockAllowSelectionReset });
+}
+
+export function apiAdminRemoveTeamSelection(idToken, data) {
+  const denied = requireMockAdmin(idToken);
+  if (denied) return denied;
+  if (!mockAllowSelectionReset) {
+    return failure("RESET_NOT_ALLOWED", "Selection reset is not currently allowed. Set ALLOW_SELECTION_RESET = TRUE in Config to enable.");
+  }
+  const teamId = String(data && (data.teamId || data.TeamID) || "").trim();
+  if (!teamId) return failure("INVALID_REQUEST", "TeamID is required.");
+  const removed = mockLockedSelections.delete(teamId) ? 1 : 0;
+  return success({ teamId, removed });
+}
+
+export function apiAdminRemoveAllSelections(idToken) {
+  const denied = requireMockAdmin(idToken);
+  if (denied) return denied;
+  if (!mockAllowSelectionReset) {
+    return failure("RESET_NOT_ALLOWED", "Selection reset is not currently allowed. Set ALLOW_SELECTION_RESET = TRUE in Config to enable.");
+  }
+  const removed = mockLockedSelections.size;
+  mockLockedSelections.clear();
+  return success({ removed });
+}
+
+export function apiAdminGetSelections(idToken) {
+  const denied = requireMockAdmin(idToken);
+  if (denied) return denied;
+  return success([...mockLockedSelections.values()]);
+}
+
+export function apiAdminGetAllData(idToken) {
+  const denied = requireMockAdmin(idToken);
+  if (denied) return denied;
+  const statsRes = apiAdminGetStats(idToken);
+  const teamsRes = apiAdminGetTeams(idToken);
+  const probsRes = apiAdminGetProblems(idToken);
+  const domsRes = apiAdminGetDomains(idToken);
+  const cfgRes = apiAdminGetConfiguration(idToken);
+  const selsRes = apiAdminGetSelections(idToken);
+
+  return Promise.all([statsRes, teamsRes, probsRes, domsRes, cfgRes, selsRes]).then(([s, t, p, d, c, sel]) => {
+    return success({
+      stats: s.data,
+      teams: t.data,
+      problems: p.data,
+      domains: d.data,
+      config: c.data,
+      selections: sel.data || []
+    });
+  });
 }

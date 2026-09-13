@@ -6,6 +6,27 @@ function apiRegisterTeam(idToken, data) {
 }
 
 
+function apiGetTeam(idToken) {
+  return apiCall_(function() {
+    const user = requireAuthenticatedUser(idToken);
+    const team = getTeamByLeaderEmail(user.email);
+
+    if (!team) {
+      throwApiError(
+        "No registered team was found for this college account.",
+        "TEAM_NOT_REGISTERED"
+      );
+    }
+
+    if (String(team.Status).trim() !== TEAM_STATUS.ACTIVE) {
+      throwApiError("This team is disabled.", "TEAM_DISABLED");
+    }
+
+    return getParticipantTeamSnapshot(team);
+  });
+}
+
+
 function apiGetDomains(idToken) {
   return apiCall_(function() {
     if (idToken) {
@@ -34,8 +55,14 @@ function apiGetProblems(idToken, data) {
 
 function apiSelectProblem(idToken, data) {
   return apiCall_(function() {
-    requireTeamLeader(idToken);
-    return selectProblem(idToken, data);
+    return lockProblem(idToken, data);
+  });
+}
+
+
+function apiLockProblem(idToken, data) {
+  return apiCall_(function() {
+    return lockProblem(idToken, data);
   });
 }
 
@@ -67,7 +94,7 @@ function apiAdminGetTeams(idToken, data) {
 function apiAdminAddTeam(idToken, data) {
   return apiCall_(function() {
     requireAdmin(idToken);
-    return adminAddTeam(data);
+    return adminCreateTeamDirect(data);
   });
 }
 
@@ -220,4 +247,74 @@ function serializeApiValue_(value) {
   }
 
   return value === undefined ? null : value;
+}
+
+
+function apiAdminGetConfiguration(idToken) {
+  return apiCall_(function() {
+    requireAdmin(idToken);
+    return getAdminConfiguration();
+  });
+}
+
+
+function apiAdminUpdateConfiguration(idToken, data) {
+  return apiCall_(function() {
+    requireAdmin(idToken);
+    return adminUpdateConfiguration(data);
+  });
+}
+
+
+function apiAdminRemoveTeamSelection(idToken, data) {
+  return apiCall_(function() {
+    requireAdmin(idToken);
+    return adminRemoveTeamSelection(getRequestedTeamId(data));
+  });
+}
+
+
+function apiAdminRemoveSelectionByPsid(idToken, data) {
+  return apiCall_(function() {
+    requireAdmin(idToken);
+    const psId = getRequestedProblemId(data);
+    return adminRemoveSelectionByPsid(psId);
+  });
+}
+
+
+function apiAdminRemoveAllSelections(idToken) {
+  return apiCall_(function() {
+    requireAdmin(idToken);
+    return adminRemoveAllSelections();
+  });
+}
+
+
+function apiAdminSetAllowReset(idToken, data) {
+  return apiCall_(function() {
+    requireAdmin(idToken);
+    let val = data;
+    if (data && typeof data === "object") {
+      val = data.allowResetSelection !== undefined ? data.allowResetSelection : (data.allowSelectionReset !== undefined ? data.allowSelectionReset : data.flag);
+    }
+    const flag = String(val === true ? "TRUE" : val === false ? "FALSE" : val || "").trim();
+    return adminSetAllowSelectionReset(flag);
+  });
+}
+
+
+function apiAdminGetSelections(idToken) {
+  return apiCall_(function() {
+    requireAdmin(idToken);
+    return getAdminSelections();
+  });
+}
+
+
+function apiAdminGetAllData(idToken) {
+  return apiCall_(function() {
+    requireAdmin(idToken);
+    return getAdminAllData();
+  });
 }

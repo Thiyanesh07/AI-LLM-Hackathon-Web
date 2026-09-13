@@ -1,0 +1,60 @@
+{
+  "admins": [
+    { "Email": "admin.test@bitsathy.ac.in", "Name": "Staging Admin", "Status": "ACTIVE" }
+  ],
+  "teams": [
+    {
+      "TeamID": "BIT-AI-TEST-001",
+      "TeamName": "Staging Agriculture Team",
+      "LeaderName": "AGR Test Leader",
+      "LeaderEmail": "leader.agr.test@bitsathy.ac.in",
+      "LeaderMobile": "9000000001",
+      "LeaderRegisterNumber": "STAGEAGR001",
+      "LeaderDepartment": "CSE",
+      "Member1Name": "AGR Member",
+      "Member1RegisterNumber": "STAGEAGR002",
+      "Member1Department": "IT",
+      "Status": "ACTIVE",
+      "DomainID": "AGR",
+      "CreatedAt": "2026-09-11T00:00:00.000Z"
+    },
+    {
+      "TeamID": "BIT-AI-TEST-002",
+      "TeamName": "Staging Education Team",
+      "LeaderName": "EDU Test Leader",
+      "LeaderEmail": "leader.edu.test@bitsathy.ac.in",
+      "LeaderMobile": "9000000002",
+      "LeaderRegisterNumber": "STAGEEDU001",
+      "LeaderDepartment": "CSE",
+      "Member1Name": "EDU Member",
+      "Member1RegisterNumber": "STAGEEDU002",
+      "Member1Department": "IT",
+      "Status": "ACTIVE",
+      "DomainID": "EDU",
+      "CreatedAt": "2026-09-11T00:00:00.000Z"
+    }
+  ],
+  "problems": [
+    { "PSID": "AGR-01", "DomainID": "AGR", "Title": "Synthetic AGR One", "Description": "Synthetic staging description.", "WhatToBuild": "Synthetic staging build brief.", "Status": "ACTIVE" },
+    { "PSID": "AGR-02", "DomainID": "AGR", "Title": "Synthetic AGR Two", "Description": "Synthetic staging description.", "WhatToBuild": "Synthetic staging build brief.", "Status": "ACTIVE" },
+    { "PSID": "AGR-03", "DomainID": "AGR", "Title": "Synthetic AGR Disabled", "Description": "Synthetic staging description.", "WhatToBuild": "Synthetic staging build brief.", "Status": "DISABLED" },
+    { "PSID": "EDU-01", "DomainID": "EDU", "Title": "Synthetic EDU One", "Description": "Synthetic staging description.", "WhatToBuild": "Synthetic staging build brief.", "Status": "ACTIVE" },
+    { "PSID": "EDU-02", "DomainID": "EDU", "Title": "Synthetic EDU Two", "Description": "Synthetic staging description.", "WhatToBuild": "Synthetic staging build brief.", "Status": "ACTIVE" }
+  ],
+  "domains": [
+    { "DomainID": "AGR", "DomainName": "Agriculture & Rural Development", "MaximumTeams": 12, "Status": "ACTIVE" },
+    { "DomainID": "EMP", "DomainName": "Skills, Employment & Entrepreneurship", "MaximumTeams": 12, "Status": "ACTIVE" },
+    { "DomainID": "EDU", "DomainName": "Education & Knowledge", "MaximumTeams": 10, "Status": "ACTIVE" },
+    { "DomainID": "GOV", "DomainName": "Government & Public Services", "MaximumTeams": 10, "Status": "ACTIVE" }
+  ],
+  "selections": [],
+  "config": {
+    "HackathonStatus": "SELECTION_OPEN",
+    "ProblemReleaseDate": "2026-09-11",
+    "ProblemReleaseTime": "12:00:00",
+    "SelectionStatus": "OPEN",
+    "REGISTRATION_ENABLED": "TRUE",
+    "REGISTRATION_DEADLINE": "2026-09-12T12:00:00+05:30",
+    "PROBLEM_CLOSE_DATETIME": "2026-09-11T13:00:00+05:30"
+  }
+}

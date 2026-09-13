@@ -8,6 +8,7 @@
     "build": "vite build",
     "package:apps-script": "npm run build && node package-apps-script.mjs",
     "lint": "eslint .",
+    "test:intellix": "node src/test-harness/run-tests.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

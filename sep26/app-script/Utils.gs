@@ -9,6 +9,11 @@ function getSpreadsheet() {
 }
 
 
+function normalizeHeaderKey(key) {
+  return String(key || "").trim().replace(/[\s_-]+/g, "").toUpperCase();
+}
+
+
 function getSheet(sheetName) {
   const spreadsheet = getSpreadsheet();
   const sheet = spreadsheet.getSheetByName(sheetName);
@@ -33,11 +38,45 @@ function getSheetRecords(sheetName) {
     return String(header).trim();
   });
 
+  const seenNormalized = {};
+  headers.forEach(function(header) {
+    const norm = normalizeHeaderKey(header);
+    if (norm) {
+      if (seenNormalized[norm]) {
+        throw new Error("Duplicate normalized header '" + norm + "' found in sheet '" + sheetName + "' headers.");
+      }
+      seenNormalized[norm] = header;
+    }
+  });
+
   return values.slice(1).map(function(row) {
     const record = {};
 
     headers.forEach(function(header, index) {
-      record[header] = row[index];
+      const val = row[index];
+      record[header] = val;
+
+      const normKey = normalizeHeaderKey(header);
+      if (
+        normKey === "TEAMID" ||
+        normKey === "COLUMN1" ||
+        ((sheetName === SHEET_NAMES.TEAMS || sheetName === SHEET_NAMES.SELECTIONS) && index === 0)
+      ) {
+        record.TeamID = val;
+        record["Team ID"] = val;
+        record.teamId = val;
+      } else if (normKey === "TEAMNAME") {
+        record.TeamName = val;
+        record["Team Name"] = val;
+      } else if (normKey === "LEADEREMAIL") {
+        record.LeaderEmail = val;
+      } else if (normKey === "DOMAINID") {
+        record.DomainID = val;
+      } else if (normKey === "STATUS") {
+        record.Status = val;
+      } else if (normKey === "CREATEDAT") {
+        record.CreatedAt = val;
+      }
     });
 
     return record;
@@ -98,39 +137,57 @@ function normalizeRegisterNumber(registerNumber) {
 }
 
 
-function getConfigValue(key) {
+var _configCacheMap = null;
+
+function getAllConfigMap(forceRefresh) {
+  if (_configCacheMap && !forceRefresh) {
+    return _configCacheMap;
+  }
   const sheet = getSheet(SHEET_NAMES.CONFIG);
-
   const data = sheet.getDataRange().getValues();
-
-  for (let i = 1; i < data.length; i++) {
-    const currentKey = String(data[i][0]).trim();
-
-    if (currentKey === key) {
-      return data[i][1];
+  const map = {};
+  if (data.length >= 1) {
+    const headers = data[0];
+    const values = data.length >= 2 ? data[1] : [];
+    for (let i = 0; i < headers.length; i++) {
+      const k = String(headers[i] || "").trim();
+      if (k) {
+        map[k] = values[i] !== undefined ? values[i] : null;
+      }
     }
   }
+  _configCacheMap = map;
+  return map;
+}
 
-  return null;
+
+function getConfigValue(key) {
+  const targetKey = String(key || "").trim();
+  const map = getAllConfigMap(false);
+  return Object.prototype.hasOwnProperty.call(map, targetKey) ? map[targetKey] : null;
 }
 
 
 function setConfigValue(key, value) {
   const sheet = getSheet(SHEET_NAMES.CONFIG);
-  const lastRow = sheet.getLastRow();
+  const targetKey = String(key || "").trim();
+  const lastCol = sheet.getLastColumn();
 
-  if (lastRow >= 2) {
-    const keys = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
-
-    for (let i = 0; i < keys.length; i++) {
-      if (String(keys[i][0]).trim() === String(key).trim()) {
-        sheet.getRange(i + 2, 2).setValue(value);
+  if (lastCol >= 1) {
+    const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+    for (let i = 0; i < headers.length; i++) {
+      if (String(headers[i]).trim() === targetKey) {
+        sheet.getRange(2, i + 1).setValue(value);
+        _configCacheMap = null;
         return;
       }
     }
   }
 
-  sheet.appendRow([String(key).trim(), value]);
+  const newCol = Math.max(lastCol, 0) + 1;
+  sheet.getRange(1, newCol).setValue(targetKey);
+  sheet.getRange(2, newCol).setValue(value);
+  _configCacheMap = null;
 }
 
 
@@ -150,7 +207,15 @@ function parseConfiguredDateTime(dateValue, timeValue) {
     ? Utilities.formatDate(timeValue, APP_TIME_ZONE, "HH:mm:ss")
     : String(timeValue || "").trim();
 
-  if (!dateText || !timeText) {
+  if (!dateText) {
+    return null;
+  }
+
+  if (!timeText) {
+    const directParsed = new Date(dateText);
+    if (!isNaN(directParsed.getTime())) {
+      return directParsed;
+    }
     return null;
   }
 
@@ -263,18 +328,46 @@ function isProblemReleased() {
     return true;
   }
 
-  const releaseDate = getConfigValue("ProblemReleaseDate");
-  const releaseTime = getConfigValue("ProblemReleaseTime");
-  const releaseAt = parseConfiguredDateTime(releaseDate, releaseTime);
+  const releaseAt = getProblemReleaseAt();
 
   return releaseAt !== null && new Date().getTime() >= releaseAt.getTime();
 }
 
 
+function getProblemReleaseAt() {
+  return parseConfiguredDateTime(
+    getConfigValue("ProblemReleaseDate"),
+    getConfigValue("ProblemReleaseTime")
+  );
+}
+
+
+function getProblemCloseAt() {
+  const combined = getConfigValue("PROBLEM_CLOSE_DATETIME");
+  if (!combined) return null;
+  if (combined instanceof Date) return isNaN(combined.getTime()) ? null : combined;
+  const parsed = new Date(String(combined).trim());
+  return isNaN(parsed.getTime()) ? null : parsed;
+}
+
+
 function isSelectionOpen() {
-  return String(getConfigValue("SelectionStatus") || "")
-    .trim()
-    .toUpperCase() === SELECTION_STATUS.OPEN;
+  if (!isProblemReleased()) return false;
+  const closeAt = getProblemCloseAt();
+  const now = new Date();
+  if (closeAt && now.getTime() >= closeAt.getTime()) return false;
+  const status = String(getConfigValue("SelectionStatus") || "").trim().toUpperCase();
+  return status === "" || status === SELECTION_STATUS.OPEN;
+}
+
+
+function getParticipantSelectionState() {
+  if (!isProblemReleased()) return "NOT_RELEASED";
+  const closeAt = getProblemCloseAt();
+  if (closeAt && new Date().getTime() >= closeAt.getTime()) return SELECTION_STATUS.CLOSED;
+  const status = String(getConfigValue("SelectionStatus") || "").trim().toUpperCase();
+  if (status === SELECTION_STATUS.CLOSED) return SELECTION_STATUS.CLOSED;
+  return SELECTION_STATUS.OPEN;
 }
 
 
@@ -314,4 +407,22 @@ function checkRegistrationOpen() {
   if (!isRegistrationOpen()) {
     throwApiError("Registration has closed.", "REGISTRATION_CLOSED");
   }
-}
+}
+
+
+function isSelectionResetAllowed() {
+  const v1 = String(getConfigValue("ALLOW_SELECTION_RESET") || "").trim().toUpperCase();
+  const v2 = String(getConfigValue("AllowResetSelection") || "").trim().toUpperCase();
+  const v3 = String(getConfigValue("AllowSelectionReset") || "").trim().toUpperCase();
+  return v1 === "TRUE" || v2 === "TRUE" || v3 === "TRUE";
+}
+
+
+function requireSelectionResetAllowed() {
+  if (!isSelectionResetAllowed()) {
+    throwApiError(
+      "Selection reset is not currently allowed. Set ALLOW_SELECTION_RESET = TRUE in Config to enable.",
+      "RESET_NOT_ALLOWED"
+    );
+  }
+}

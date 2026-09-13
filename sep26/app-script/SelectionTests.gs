@@ -150,6 +150,40 @@ function testGetMySelection(idToken) {
 }
 
 
+function testLockProblem(idToken, psId) {
+  const result = lockProblem(idToken, { psid: psId });
+  assertParticipantTest(result.status === SELECTION_STATUS.LOCKED, "problem was not locked");
+  assertParticipantTest(result.psId === String(psId).trim(), "wrong problem was locked");
+  return result;
+}
+
+
+function testLockProblemWithoutClientScope(idToken, psId, fakeTeamId, fakeDomainId) {
+  const result = lockProblem(idToken, {
+    psid: psId,
+    teamId: fakeTeamId,
+    domainId: fakeDomainId,
+    leaderEmail: "attacker@example.com"
+  });
+  const team = requireTeamLeader(idToken).team;
+
+  assertParticipantTest(result.teamId === String(team.TeamID).trim(), "client team identity was trusted");
+  assertParticipantTest(result.domainId === String(team.DomainID).trim().toUpperCase(), "client domain was trusted");
+  return result;
+}
+
+
+function testLockProblemFailure(idToken, psId, expectedCode) {
+  try {
+    lockProblem(idToken, { psid: psId });
+    throw new Error("Expected lock failure: " + expectedCode);
+  } catch (error) {
+    assertParticipantTest(error.code === expectedCode, "wrong lock failure code");
+    return error.code;
+  }
+}
+
+
 function testSecondProblemRejected(idToken, domainId, psId) {
   return testSelectionFailureCode(
     idToken,

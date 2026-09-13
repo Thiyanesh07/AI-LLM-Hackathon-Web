@@ -1,3 +1,47 @@
+function getTeamIdColumn(sheet) {
+  const lastColumn = sheet.getLastColumn();
+
+  if (lastColumn < 1) {
+    throwApiError("Teams sheet has no columns.", "TEAM_ID_COLUMN_MAPPING_FAILED");
+  }
+
+  const headers = sheet
+    .getRange(1, 1, 1, lastColumn)
+    .getValues()[0];
+
+  const matches = [];
+  headers.forEach(function(header, index) {
+    if (normalizeHeaderKey(header) === "TEAMID") {
+      matches.push(index + 1);
+    }
+  });
+
+  if (matches.length === 1) {
+    return matches[0];
+  }
+
+  if (matches.length > 1) {
+    throwApiError(
+      "Duplicate normalized Team ID headers found in Teams sheet: " + JSON.stringify(headers),
+      "DUPLICATE_TEAM_ID_HEADERS"
+    );
+  }
+
+  // Fallback: If no explicit Team ID header exists, but column 1 (A1) is empty/unlabelled (""),
+  // column 1 (Column A) is the target Team ID column.
+  const firstHeaderNorm = normalizeHeaderKey(headers[0]);
+  if (!firstHeaderNorm) {
+    Logger.log("TEAM_ID_COLUMN_RESOLVED: Header at column 1 is empty ('" + headers[0] + "'). Defaulting Team ID to Column 1.");
+    return 1;
+  }
+
+  throwApiError(
+    "Failed to map Team ID to target row column. Headers: " + JSON.stringify(headers),
+    "TEAM_ID_COLUMN_MAPPING_FAILED"
+  );
+}
+
+
 function generateNextTeamId() {
   const lock = LockService.getScriptLock();
 
@@ -5,48 +49,7 @@ function generateNextTeamId() {
   lock.waitLock(10000);
 
   try {
-    const sheet = getSheet(SHEET_NAMES.TEAMS);
-    const lastRow = sheet.getLastRow();
-
-    // Only headers exist → first team.
-    if (lastRow < 2) {
-      return TEAM_ID_PREFIX + "001";
-    }
-
-    const headerMap = getSheetHeaderMap(SHEET_NAMES.TEAMS);
-    const teamIdCol = headerMap.TeamID || 1;
-
-    // Read the TeamID column only.
-    const teamIds = sheet
-      .getRange(2, teamIdCol, lastRow - 1, 1)
-      .getValues()
-      .flat();
-
-    let maxNumber = 0;
-
-    teamIds.forEach(function (teamId) {
-      if (!teamId) {
-        return;
-      }
-
-      const value = String(teamId).trim();
-
-      if (!value.startsWith(TEAM_ID_PREFIX)) {
-        return;
-      }
-
-      const numberPart = value.substring(TEAM_ID_PREFIX.length);
-      const number = parseInt(numberPart, 10);
-
-      if (!isNaN(number)) {
-        maxNumber = Math.max(maxNumber, number);
-      }
-    });
-
-    const nextNumber = maxNumber + 1;
-
-    return TEAM_ID_PREFIX + String(nextNumber).padStart(3, "0");
-
+    return generateNextTeamIdWithoutLock();
   } finally {
     lock.releaseLock();
   }
@@ -301,6 +304,10 @@ function createTeam(data) {
     Logger.log("DOMAIN_VALIDATED: Domain " + domainId + " capacity check passed.");
 
     const teamId = generateNextTeamIdWithoutLock();
+    if (!teamId || typeof teamId !== "string" || !teamId.trim() || !teamId.startsWith(TEAM_ID_PREFIX)) {
+      Logger.log("REGISTRATION_FAILURE: Invalid or empty generated Team ID: " + teamId);
+      throwApiError("Failed to generate a valid Team ID.", "TEAM_ID_GENERATION_FAILED");
+    }
     Logger.log("TEAM_ID_GENERATED: " + teamId);
 
     const sheet = getSheet(SHEET_NAMES.TEAMS);
@@ -333,46 +340,61 @@ function createTeam(data) {
     });
 
     const fieldMap = {
-      TeamID: teamId,
-      TeamName: String(data.teamName || "").trim(),
-      LeaderName: String(data.leaderName || "").trim(),
-      LeaderEmail: normalizeEmail(data.leaderEmail),
-      LeaderMobileNumber: normalizedMobile,
-      LeaderMobile: normalizedMobile,
-      LeaderRegisterNumber: normalizeRegisterNumber(data.leaderRegisterNumber),
-      LeaderDepartment: String(data.leaderDepartment || "").trim(),
-      Member1Name: String(member1.name || "").trim(),
-      Member1RegisterNumber: normalizeRegisterNumber(member1.registerNumber),
-      Member1Department: String(member1.department || "").trim(),
-      Member2Name: String(member2.name || "").trim(),
-      Member2RegisterNumber: normalizeRegisterNumber(member2.registerNumber),
-      Member2Department: String(member2.department || "").trim(),
-      Member3Name: String(member3.name || "").trim(),
-      Member3RegisterNumber: normalizeRegisterNumber(member3.registerNumber),
-      Member3Department: String(member3.department || "").trim(),
-      Member4Name: String(member4.name || "").trim(),
-      Member4RegisterNumber: normalizeRegisterNumber(member4.registerNumber),
-      Member4Department: String(member4.department || "").trim(),
-      Status: TEAM_STATUS.ACTIVE,
-      CreatedAt: new Date(),
-      DomainID: domainId
+      TEAMID: teamId,
+      TEAMNAME: String(data.teamName || "").trim(),
+      LEADERNAME: String(data.leaderName || "").trim(),
+      LEADEREMAIL: normalizeEmail(data.leaderEmail),
+      LEADERMOBILENUMBER: normalizedMobile,
+      LEADERMOBILE: normalizedMobile,
+      LEADERREGISTERNUMBER: normalizeRegisterNumber(data.leaderRegisterNumber),
+      LEADERDEPARTMENT: String(data.leaderDepartment || "").trim(),
+      MEMBER1NAME: String(member1.name || "").trim(),
+      MEMBER1REGISTERNUMBER: normalizeRegisterNumber(member1.registerNumber),
+      MEMBER1DEPARTMENT: String(member1.department || "").trim(),
+      MEMBER2NAME: String(member2.name || "").trim(),
+      MEMBER2REGISTERNUMBER: normalizeRegisterNumber(member2.registerNumber),
+      MEMBER2DEPARTMENT: String(member2.department || "").trim(),
+      MEMBER3NAME: String(member3.name || "").trim(),
+      MEMBER3REGISTERNUMBER: normalizeRegisterNumber(member3.registerNumber),
+      MEMBER3DEPARTMENT: String(member3.department || "").trim(),
+      MEMBER4NAME: String(member4.name || "").trim(),
+      MEMBER4REGISTERNUMBER: normalizeRegisterNumber(member4.registerNumber),
+      MEMBER4DEPARTMENT: String(member4.department || "").trim(),
+      STATUS: TEAM_STATUS.ACTIVE,
+      CREATEDAT: new Date(),
+      DOMAINID: domainId
     };
 
-    const rowToAppend = headers.map(function(header) {
-      if (Object.prototype.hasOwnProperty.call(fieldMap, header)) {
-        return fieldMap[header];
+    const targetTeamIdCol = getTeamIdColumn(sheet);
+
+    const rowToAppend = headers.map(function(header, index) {
+      if (index + 1 === targetTeamIdCol) {
+        return teamId;
+      }
+      const normalizedHeader = normalizeHeaderKey(header);
+      if (Object.prototype.hasOwnProperty.call(fieldMap, normalizedHeader)) {
+        return fieldMap[normalizedHeader];
       }
       return "";
     });
 
+    if (rowToAppend.length !== lastColumn) {
+      throwApiError("Row column count mismatch with sheet headers.", "ROW_LENGTH_MISMATCH");
+    }
+
+    if (!rowToAppend[targetTeamIdCol - 1] || String(rowToAppend[targetTeamIdCol - 1]).trim() !== teamId) {
+      Logger.log("REGISTRATION_FAILURE: Pre-append invariant check failed for TeamID at col " + targetTeamIdCol);
+      throwApiError("Failed to map Team ID to target row column.", "TEAM_ID_COLUMN_MAPPING_FAILED");
+    }
+
     Logger.log("ROW_WRITE_START: Appending row to Teams sheet for " + teamId);
     sheet.appendRow(rowToAppend);
+    SpreadsheetApp.flush();
     const insertedRowIndex = sheet.getLastRow();
     Logger.log("ROW_WRITE_SUCCESS: Row appended at index " + insertedRowIndex);
 
     // Verify written row directly
-    const teamIdCol = headerMap.TeamID || 1;
-    const writtenTeamId = String(sheet.getRange(insertedRowIndex, teamIdCol).getValue()).trim();
+    const writtenTeamId = String(sheet.getRange(insertedRowIndex, targetTeamIdCol).getValue()).trim();
 
     if (writtenTeamId !== teamId) {
       Logger.log("REGISTRATION_FAILURE: Persistence verification failed. Expected " + teamId + ", got " + writtenTeamId);
@@ -447,8 +469,7 @@ function generateNextTeamIdWithoutLock() {
     return TEAM_ID_PREFIX + "001";
   }
 
-  const headerMap = getSheetHeaderMap(SHEET_NAMES.TEAMS);
-  const teamIdCol = headerMap.TeamID || 1;
+  const teamIdCol = getTeamIdColumn(sheet);
 
   const teamIds = sheet
     .getRange(2, teamIdCol, lastRow - 1, 1)
@@ -468,7 +489,8 @@ function generateNextTeamIdWithoutLock() {
       return;
     }
 
-    const number = parseInt(value.substring(TEAM_ID_PREFIX.length), 10);
+    const numberPart = value.substring(TEAM_ID_PREFIX.length);
+    const number = parseInt(numberPart, 10);
 
     if (!isNaN(number)) {
       maxNumber = Math.max(maxNumber, number);

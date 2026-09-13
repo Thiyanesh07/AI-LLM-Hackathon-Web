@@ -1,11 +1,13 @@
 const ACTION_MAP = {
   "/register-team": "REGISTER_TEAM",
+  "/team": "GET_TEAM",
   "/domains": "GET_DOMAINS",
   "/get-domains": "GET_DOMAINS",
   "/select-domain": "SELECT_DOMAIN",
   "/problems": "GET_PROBLEMS",
   "/get-problems": "GET_PROBLEMS",
   "/select-problem": "SELECT_PROBLEM",
+  "/lock-problem": "LOCK_PROBLEM",
   "/my-selection": "GET_MY_SELECTION",
   "/get-my-selection": "GET_MY_SELECTION",
   "/admin/stats": "ADMIN_GET_STATS",
@@ -23,7 +25,15 @@ const ACTION_MAP = {
   "/admin/update-domain": "ADMIN_UPDATE_DOMAIN",
   "/admin/release-now": "ADMIN_RELEASE_NOW",
   "/admin/close-selection": "ADMIN_CLOSE_SELECTION",
-  "/admin/open-selection": "ADMIN_OPEN_SELECTION"
+  "/admin/open-selection": "ADMIN_OPEN_SELECTION",
+  "/admin/config": "ADMIN_GET_CONFIG",
+  "/admin/update-config": "ADMIN_UPDATE_CONFIG",
+  "/admin/remove-team-selection": "ADMIN_REMOVE_TEAM_SELECTION",
+  "/admin/remove-all-selections": "ADMIN_REMOVE_ALL_SELECTIONS",
+  "/admin/set-allow-reset": "ADMIN_SET_ALLOW_RESET",
+  "/admin/selections": "ADMIN_GET_SELECTIONS",
+  "/admin/all-data": "ADMIN_GET_ALL_DATA",
+  "/admin/remove-selection-by-psid": "ADMIN_REMOVE_SELECTION_BY_PSID"
 };
 
 export default async function handler(req, res) {
@@ -83,15 +93,31 @@ export default async function handler(req, res) {
       redirect: "follow"
     });
 
+    const contentType = response.headers.get("content-type") || "";
     const responseText = await response.text();
     let jsonResponse;
     try {
       jsonResponse = JSON.parse(responseText);
     } catch {
+      console.error("[PROXY_NON_JSON_RESPONSE]", {
+        action: payload.action,
+        subPath,
+        status: response.status,
+        contentType,
+        hasToken: Boolean(payload.idToken),
+        bodyPreview: responseText.slice(0, 500)
+      });
       jsonResponse = {
         success: false,
         code: "INVALID_APPS_SCRIPT_RESPONSE",
-        error: "Apps Script Web App returned non-JSON output."
+        error: "Apps Script Web App returned non-JSON output.",
+        details: {
+          status: response.status,
+          contentType,
+          action: payload.action,
+          hasToken: Boolean(payload.idToken),
+          preview: responseText.slice(0, 300)
+        }
       };
     }
 
