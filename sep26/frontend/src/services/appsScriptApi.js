@@ -1,6 +1,64 @@
-import * as localMockApi from "./localMockApi";
+import * as localMockApi from "./localMockApi.js";
+import { getAuthToken } from "./authSession.js";
 
 const REQUEST_TIMEOUT_MS = 15000;
+
+export function assertJsonSerializable(payload, seen = new WeakSet()) {
+  if (payload === null || payload === undefined) return true;
+  const type = typeof payload;
+  if (type === "number" || type === "string" || type === "boolean") return true;
+  if (type === "function" || type === "symbol" || type === "bigint") {
+    throw new Error(`Non-serializable type encountered: ${type}`);
+  }
+  if (type === "object") {
+    if (typeof window !== "undefined" && payload === window) {
+      throw new Error("Window object is not serializable");
+    }
+    if (typeof document !== "undefined" && payload === document) {
+      throw new Error("Document object is not serializable");
+    }
+    if (typeof Event !== "undefined" && payload instanceof Event) {
+      throw new Error("Event object is not serializable");
+    }
+    if (typeof Node !== "undefined" && payload instanceof Node) {
+      throw new Error("DOM Node object is not serializable");
+    }
+    const constructorName = payload?.constructor?.name || "";
+    if (
+      ["Window", "HTMLDocument", "Document", "MouseEvent", "PointerEvent", "KeyboardEvent", "Event", "SyntheticBaseEvent"].includes(constructorName) ||
+      payload?.window?.window === payload
+    ) {
+      throw new Error(`Browser object '${constructorName}' is not serializable`);
+    }
+    if (seen.has(payload)) {
+      throw new Error("Circular structure detected in payload");
+    }
+    seen.add(payload);
+    if (Array.isArray(payload)) {
+      for (const item of payload) {
+        assertJsonSerializable(item, seen);
+      }
+    } else {
+      for (const key of Object.keys(payload)) {
+        assertJsonSerializable(payload[key], seen);
+      }
+    }
+    seen.delete(payload);
+    return true;
+  }
+  return true;
+}
+
+export function resolveIdToken(idTokenInput) {
+  if (typeof idTokenInput === "string" && idTokenInput.trim().length > 0) {
+    return idTokenInput.trim();
+  }
+  const sessionToken = getAuthToken();
+  if (typeof sessionToken === "string" && sessionToken.trim().length > 0) {
+    return sessionToken.trim();
+  }
+  return null;
+}
 
 async function executePost(endpoint, action, idToken, data) {
   const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
@@ -56,7 +114,34 @@ async function executePost(endpoint, action, idToken, data) {
   }
 }
 
-async function postToProxy(endpoint, action, idToken, data) {
+async function postToProxy(endpoint, action, idTokenInput, data) {
+  const resolvedToken = resolveIdToken(idTokenInput);
+
+  const payload = {
+    action,
+    idToken: resolvedToken,
+    data
+  };
+
+  try {
+    assertJsonSerializable(payload);
+  } catch (err) {
+    console.error(`[API_MALFORMED_PAYLOAD_PREVENTED] Action ${action} rejected:`, err.message);
+    return {
+      success: false,
+      code: "MALFORMED_PAYLOAD",
+      error: `Payload serialization error: ${err.message}`
+    };
+  }
+
+  if (!resolvedToken) {
+    return {
+      success: false,
+      code: "AUTH_REQUIRED",
+      error: "Authentication token is missing or invalid."
+    };
+  }
+
   if (import.meta.env.VITE_USE_MOCK === "true") {
     const mockFunctionName = {
       REGISTER_TEAM: "apiRegisterTeam",
@@ -90,14 +175,20 @@ async function postToProxy(endpoint, action, idToken, data) {
       ADMIN_REMOVE_TEAM_SELECTION: "apiAdminRemoveTeamSelection",
       ADMIN_REMOVE_ALL_SELECTIONS: "apiAdminRemoveAllSelections",
       ADMIN_SET_ALLOW_RESET: "apiAdminSetAllowReset",
-      ADMIN_GET_SELECTIONS: "apiAdminGetSelections"
+      ADMIN_GET_SELECTIONS: "apiAdminGetSelections",
+      SUBMIT_FEEDBACK: "apiSubmitFeedback",
+      GET_MY_FEEDBACK_STATUS: "apiGetMyFeedbackStatus",
+      ADMIN_GET_FEEDBACK: "apiAdminGetFeedback",
+      SUBMIT_FINAL_SUBMISSION: "apiSubmitFinalSubmission",
+      GET_MY_FINAL_SUBMISSION_STATUS: "apiGetMyFinalSubmissionStatus",
+      ADMIN_GET_FINAL_SUBMISSIONS: "apiAdminGetFinalSubmissions"
     }[action] || action;
     if (typeof localMockApi[mockFunctionName] === "function") {
-      return localMockApi[mockFunctionName](idToken, data);
+      return localMockApi[mockFunctionName](resolvedToken, data);
     }
   }
 
-  let result = await executePost(endpoint, action, idToken, data);
+  let result = await executePost(endpoint, action, resolvedToken, data);
 
   const isTransientFailure = !result.success && (
     result.code === "INVALID_APPS_SCRIPT_RESPONSE" ||
@@ -109,12 +200,12 @@ async function postToProxy(endpoint, action, idToken, data) {
     console.warn(`[API_TRANSIENT_RETRY] Action ${action} failed with ${result.code || result.status}. Retrying in 500ms...`, {
       action,
       endpoint,
-      hasToken: Boolean(idToken),
+      hasToken: Boolean(resolvedToken),
       result
     });
 
     await new Promise(resolve => setTimeout(resolve, 500));
-    result = await executePost(endpoint, action, idToken, data);
+    result = await executePost(endpoint, action, resolvedToken, data);
   }
 
   return result;
@@ -155,6 +246,18 @@ export function apiLockProblem(idToken, psid) {
 
 export function apiGetMySelection(idToken) {
   return postToProxy("/api/proxy", "GET_MY_SELECTION", idToken);
+}
+
+export function apiSubmitFeedback(idToken, data) {
+  return postToProxy("/api/proxy", "SUBMIT_FEEDBACK", idToken, data);
+}
+
+export function apiGetMyFeedbackStatus(idToken) {
+  return postToProxy("/api/proxy", "GET_MY_FEEDBACK_STATUS", idToken);
+}
+
+export function apiAdminGetFeedback(idToken) {
+  return postToProxy("/api/proxy", "ADMIN_GET_FEEDBACK", idToken);
 }
 
 export function apiAdminGetAllData(idToken) {
@@ -251,4 +354,16 @@ export function apiAdminSetAllowReset(idToken, data) {
 
 export function apiAdminGetSelections(idToken) {
   return postToProxy("/api/proxy", "ADMIN_GET_SELECTIONS", idToken);
+}
+
+export function apiSubmitFinalSubmission(idToken, data) {
+  return postToProxy("/api/proxy", "SUBMIT_FINAL_SUBMISSION", idToken, data);
+}
+
+export function apiGetMyFinalSubmissionStatus(idToken) {
+  return postToProxy("/api/proxy", "GET_MY_FINAL_SUBMISSION_STATUS", idToken);
+}
+
+export function apiAdminGetFinalSubmissions(idToken) {
+  return postToProxy("/api/proxy", "ADMIN_GET_FINAL_SUBMISSIONS", idToken);
 }

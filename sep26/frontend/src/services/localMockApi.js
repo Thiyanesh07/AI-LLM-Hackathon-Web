@@ -38,8 +38,8 @@ let mockSelectedDomain = null;
 let mockTeamCounter = 0;
 
 const mockProblemConfig = {
-  selectionState: import.meta.env.VITE_MOCK_SELECTION_STATE || "NOT_RELEASED",
-  releaseAt: import.meta.env.VITE_MOCK_RELEASE_AT || "2026-09-15T04:30:00.000Z",
+  selectionState: (typeof import.meta !== "undefined" && import.meta.env?.VITE_MOCK_SELECTION_STATE) || "NOT_RELEASED",
+  releaseAt: (typeof import.meta !== "undefined" && import.meta.env?.VITE_MOCK_RELEASE_AT) || "2026-09-15T04:30:00.000Z",
   problems: [
     { PSID: "AGR-01", DomainID: "AGR", Title: "Farm Support Finder", Description: "Help farmers discover relevant public support programs.", WhatToBuild: "Build a focused search and guidance experience." },
     { PSID: "AGR-02", DomainID: "AGR", Title: "Crop Advisory Companion", Description: "Make practical crop advice easier to find and understand.", WhatToBuild: "Build a simple advisory workflow for rural users." },
@@ -69,7 +69,7 @@ const mockTeam = {
   createdAt: "2026-09-10T00:00:00.000Z",
   selectionStatus: mockProblemConfig.selectionState,
   releaseAt: mockProblemConfig.releaseAt,
-  closeAt: import.meta.env.VITE_MOCK_CLOSE_AT || "2026-09-15T13:30:00.000Z",
+  closeAt: (typeof import.meta !== "undefined" && import.meta.env?.VITE_MOCK_CLOSE_AT) || "2026-09-15T13:30:00.000Z",
   problemsReleased: mockProblemConfig.selectionState !== "NOT_RELEASED",
   selection: null
 };
@@ -97,7 +97,7 @@ const mockAdminConfig = {
   registrationEnabled: "TRUE",
   registrationDeadline: "2026-09-12T12:00:00+05:30",
   problemReleaseAt: "2026-09-15T04:30:00.000Z",
-  problemCloseAt: import.meta.env.VITE_MOCK_CLOSE_AT || "2026-09-15T13:30:00.000Z",
+  problemCloseAt: (typeof import.meta !== "undefined" && import.meta.env?.VITE_MOCK_CLOSE_AT) || "2026-09-15T13:30:00.000Z",
   selectionStatus: mockProblemConfig.selectionState === "OPEN" ? "OPEN" : "CLOSED"
 };
 
@@ -574,6 +574,114 @@ export function apiAdminGetSelections(idToken) {
   return success([...mockLockedSelections.values()]);
 }
 
+const mockFeedbacks = new Map();
+const mockFinalSubmissions = new Map();
+
+export function apiSubmitFeedback(idToken, data) {
+  if (!idToken) return failure("AUTH_REQUIRED", "Authentication is required.");
+  const currentTeam = mockTeams[idToken];
+  if (!currentTeam) return failure("TEAM_NOT_REGISTERED", "No registered team was found.");
+  if (currentTeam.status !== "ACTIVE") return failure("TEAM_DISABLED", "This team is currently disabled.");
+
+  const feedbackText = String(data?.feedback || "").trim();
+  if (!feedbackText) return failure("INVALID_FEEDBACK", "Feedback cannot be empty.");
+  if (feedbackText.length > 2000) return failure("INVALID_FEEDBACK", "Feedback exceeds maximum length of 2000 characters.");
+
+  if (mockFeedbacks.has(currentTeam.teamId)) {
+    return failure("FEEDBACK_ALREADY_SUBMITTED", "Feedback has already been submitted for this team.");
+  }
+
+  const entry = {
+    teamId: currentTeam.teamId,
+    teamName: currentTeam.teamName,
+    domain: currentTeam.domainId,
+    feedback: feedbackText
+  };
+  mockFeedbacks.set(currentTeam.teamId, entry);
+
+  return Promise.resolve({
+    success: true,
+    message: "Feedback submitted successfully."
+  });
+}
+
+export function apiGetMyFeedbackStatus(idToken) {
+  if (!idToken) return failure("AUTH_REQUIRED", "Authentication is required.");
+  const currentTeam = mockTeams[idToken];
+  if (!currentTeam) return failure("TEAM_NOT_REGISTERED", "No registered team was found.");
+
+  return Promise.resolve({
+    success: true,
+    submitted: mockFeedbacks.has(currentTeam.teamId)
+  });
+}
+
+export function apiAdminGetFeedback(idToken) {
+  const denied = requireMockAdmin(idToken);
+  if (denied) return denied;
+
+  return Promise.resolve({
+    success: true,
+    feedback: [...mockFeedbacks.values()]
+  });
+}
+
+export function apiSubmitFinalSubmission(idToken, data) {
+  if (!idToken) return failure("AUTH_REQUIRED", "Authentication is required.");
+  const currentTeam = mockTeams[idToken];
+  if (!currentTeam) return failure("TEAM_NOT_REGISTERED", "No registered team was found.");
+  if (currentTeam.status !== "ACTIVE") return failure("TEAM_DISABLED", "This team is currently disabled.");
+
+  const selection = mockLockedSelections.get(currentTeam.teamId);
+  if (!selection || !selection.psId) {
+    return failure("NO_PROBLEM_SELECTED", "Your team has not selected a problem statement yet.");
+  }
+
+  const feedbackText = String(data?.feedback || "").trim();
+  if (!feedbackText) return failure("INVALID_FINAL_SUBMISSION", "Feedback cannot be empty.");
+  if (feedbackText.length > 5000) return failure("INVALID_FINAL_SUBMISSION", "Feedback exceeds maximum length of 5000 characters.");
+
+  if (mockFinalSubmissions.has(currentTeam.teamId)) {
+    return failure("FINAL_SUBMISSION_ALREADY_SUBMITTED", "Your team has already submitted the final submission.");
+  }
+
+  const entry = {
+    teamId: currentTeam.teamId,
+    teamName: currentTeam.teamName,
+    psId: selection.psId,
+    teamLeadName: currentTeam.leaderName,
+    teamLeadEmail: currentTeam.leaderEmail,
+    feedback: feedbackText
+  };
+  mockFinalSubmissions.set(currentTeam.teamId, entry);
+
+  return Promise.resolve({
+    success: true,
+    message: "Final submission submitted successfully."
+  });
+}
+
+export function apiGetMyFinalSubmissionStatus(idToken) {
+  if (!idToken) return failure("AUTH_REQUIRED", "Authentication is required.");
+  const currentTeam = mockTeams[idToken];
+  if (!currentTeam) return failure("TEAM_NOT_REGISTERED", "No registered team was found.");
+
+  return Promise.resolve({
+    success: true,
+    submitted: mockFinalSubmissions.has(currentTeam.teamId)
+  });
+}
+
+export function apiAdminGetFinalSubmissions(idToken) {
+  const denied = requireMockAdmin(idToken);
+  if (denied) return denied;
+
+  return Promise.resolve({
+    success: true,
+    finalSubmissions: [...mockFinalSubmissions.values()]
+  });
+}
+
 export function apiAdminGetAllData(idToken) {
   const denied = requireMockAdmin(idToken);
   if (denied) return denied;
@@ -583,15 +691,19 @@ export function apiAdminGetAllData(idToken) {
   const domsRes = apiAdminGetDomains(idToken);
   const cfgRes = apiAdminGetConfiguration(idToken);
   const selsRes = apiAdminGetSelections(idToken);
+  const fbkRes = apiAdminGetFeedback(idToken);
+  const finalSubRes = apiAdminGetFinalSubmissions(idToken);
 
-  return Promise.all([statsRes, teamsRes, probsRes, domsRes, cfgRes, selsRes]).then(([s, t, p, d, c, sel]) => {
+  return Promise.all([statsRes, teamsRes, probsRes, domsRes, cfgRes, selsRes, fbkRes, finalSubRes]).then(([s, t, p, d, c, sel, fbk, fsub]) => {
     return success({
       stats: s.data,
       teams: t.data,
       problems: p.data,
       domains: d.data,
       config: c.data,
-      selections: sel.data || []
+      selections: sel.data || [],
+      feedback: fbk.feedback || [],
+      finalSubmissions: fsub.finalSubmissions || []
     });
   });
 }

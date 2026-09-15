@@ -4,7 +4,9 @@ const SHEET_NAMES = {
   SELECTIONS: "Selections",
   DOMAINS: "Domains",
   ADMINS: "Admins",
-  CONFIG: "Config"
+  CONFIG: "Config",
+  FEEDBACK: "Feedback",
+  FINAL_SUBMISSIONS: "FinalSubmissions"
 };
 
 const TEAM_ID_PREFIX = "BIT-AI-";

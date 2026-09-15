@@ -16,10 +16,20 @@ function normalizeHeaderKey(key) {
 
 function getSheet(sheetName) {
   const spreadsheet = getSpreadsheet();
-  const sheet = spreadsheet.getSheetByName(sheetName);
+  let sheet = spreadsheet.getSheetByName(sheetName);
 
   if (!sheet) {
-    throw new Error(`Sheet not found: ${sheetName}`);
+    if (sheetName === SHEET_NAMES.FEEDBACK) {
+      sheet = spreadsheet.insertSheet(SHEET_NAMES.FEEDBACK);
+      sheet.appendRow(["TeamID", "TeamName", "Domain", "Feedback"]);
+      SpreadsheetApp.flush();
+    } else if (sheetName === SHEET_NAMES.FINAL_SUBMISSIONS) {
+      sheet = spreadsheet.insertSheet(SHEET_NAMES.FINAL_SUBMISSIONS);
+      sheet.appendRow(["TeamID", "TeamName", "PSID", "TeamLeadName", "TeamLeadEmail", "Feedback"]);
+      SpreadsheetApp.flush();
+    } else {
+      throw new Error(`Sheet not found: ${sheetName}`);
+    }
   }
 
   return sheet;
@@ -60,7 +70,7 @@ function getSheetRecords(sheetName) {
       if (
         normKey === "TEAMID" ||
         normKey === "COLUMN1" ||
-        ((sheetName === SHEET_NAMES.TEAMS || sheetName === SHEET_NAMES.SELECTIONS) && index === 0)
+        ((sheetName === SHEET_NAMES.TEAMS || sheetName === SHEET_NAMES.SELECTIONS || sheetName === SHEET_NAMES.FEEDBACK || sheetName === SHEET_NAMES.FINAL_SUBMISSIONS) && index === 0)
       ) {
         record.TeamID = val;
         record["Team ID"] = val;
@@ -68,14 +78,30 @@ function getSheetRecords(sheetName) {
       } else if (normKey === "TEAMNAME") {
         record.TeamName = val;
         record["Team Name"] = val;
-      } else if (normKey === "LEADEREMAIL") {
+        record.teamName = val;
+      } else if (normKey === "PSID") {
+        record.PSID = val;
+        record.psId = val;
+        record.psid = val;
+      } else if (normKey === "TEAMLEADNAME" || normKey === "LEADERNAME") {
+        record.TeamLeadName = val;
+        record.teamLeadName = val;
+        record.LeaderName = val;
+      } else if (normKey === "TEAMLEADEMAIL" || normKey === "LEADEREMAIL") {
+        record.TeamLeadEmail = val;
+        record.teamLeadEmail = val;
         record.LeaderEmail = val;
-      } else if (normKey === "DOMAINID") {
+      } else if (normKey === "DOMAINID" || normKey === "DOMAIN") {
         record.DomainID = val;
+        record.Domain = val;
+        record.domain = val;
       } else if (normKey === "STATUS") {
         record.Status = val;
       } else if (normKey === "CREATEDAT") {
         record.CreatedAt = val;
+      } else if (normKey === "FEEDBACK") {
+        record.Feedback = val;
+        record.feedback = val;
       }
     });
 
@@ -100,17 +126,32 @@ function getSheetHeaderMap(sheetName) {
 function findSheetRowNumber(sheetName, headerName, value) {
   const sheet = getSheet(sheetName);
   const headerMap = getSheetHeaderMap(sheetName);
-  const column = headerMap[headerName];
+  let column = headerMap[headerName];
+
+  if (!column) {
+    const targetNorm = normalizeHeaderKey(headerName);
+    const keys = Object.keys(headerMap);
+    for (let i = 0; i < keys.length; i++) {
+      const kNorm = normalizeHeaderKey(keys[i]);
+      if (
+        kNorm === targetNorm ||
+        ((targetNorm === "TEAMID" || targetNorm === "COLUMN1") && (kNorm === "COLUMN1" || kNorm === "TEAMID"))
+      ) {
+        column = headerMap[keys[i]];
+        break;
+      }
+    }
+  }
 
   if (!column || sheet.getLastRow() < 2) {
     return null;
   }
 
-  const expected = String(value || "").trim();
+  const expected = String(value || "").trim().toUpperCase();
   const values = sheet.getRange(2, column, sheet.getLastRow() - 1, 1).getValues();
 
   for (let i = 0; i < values.length; i++) {
-    if (String(values[i][0]).trim() === expected) {
+    if (String(values[i][0] === undefined || values[i][0] === null ? "" : values[i][0]).trim().toUpperCase() === expected) {
       return i + 2;
     }
   }
@@ -322,6 +363,46 @@ function padNumber(value) {
 }
 
 
+function parseFlexibleDateTime(value) {
+  if (!value) return null;
+  if (value instanceof Date) return isNaN(value.getTime()) ? null : value;
+
+  const text = String(value).trim();
+  if (!text) return null;
+
+  const direct = new Date(text);
+  if (!isNaN(direct.getTime())) return direct;
+
+  const matchDDMM = text.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+  if (matchDDMM) {
+    const d = padNumber(matchDDMM[1]);
+    const m = padNumber(matchDDMM[2]);
+    const y = matchDDMM[3];
+    const hh = padNumber(matchDDMM[4] || "00");
+    const mm = padNumber(matchDDMM[5] || "00");
+    const ss = padNumber(matchDDMM[6] || "00");
+    const formatted = y + "-" + m + "-" + d + "T" + hh + ":" + mm + ":" + ss + "+05:30";
+    const parsed = new Date(formatted);
+    if (!isNaN(parsed.getTime())) return parsed;
+  }
+
+  const matchYYYYMM = text.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+  if (matchYYYYMM) {
+    const y = matchYYYYMM[1];
+    const m = padNumber(matchYYYYMM[2]);
+    const d = padNumber(matchYYYYMM[3]);
+    const hh = padNumber(matchYYYYMM[4] || "00");
+    const mm = padNumber(matchYYYYMM[5] || "00");
+    const ss = padNumber(matchYYYYMM[6] || "00");
+    const formatted = y + "-" + m + "-" + d + "T" + hh + ":" + mm + ":" + ss + "+05:30";
+    const parsed = new Date(formatted);
+    if (!isNaN(parsed.getTime())) return parsed;
+  }
+
+  return null;
+}
+
+
 function isProblemReleased() {
   const override = String(getConfigValue("ProblemReleaseOverride") || "")
     .trim()
@@ -338,19 +419,34 @@ function isProblemReleased() {
 
 
 function getProblemReleaseAt() {
-  return parseConfiguredDateTime(
-    getConfigValue("ProblemReleaseDate"),
-    getConfigValue("ProblemReleaseTime")
-  );
+  const combined = getConfigValue("PROBLEM_RELEASE_DATETIME") || getConfigValue("ProblemReleaseAt") || getConfigValue("problemReleaseAt");
+  if (combined) {
+    const parsed = parseFlexibleDateTime(combined);
+    if (parsed) return parsed;
+  }
+  const dateVal = getConfigValue("ProblemReleaseDate");
+  const timeVal = getConfigValue("ProblemReleaseTime");
+  if (dateVal !== null && dateVal !== undefined && String(dateVal).trim() !== "") {
+    const parsed = parseConfiguredDateTime(dateVal, timeVal || "00:00:00");
+    if (parsed) return parsed;
+  }
+  return null;
 }
 
 
 function getProblemCloseAt() {
-  const combined = getConfigValue("PROBLEM_CLOSE_DATETIME");
-  if (!combined) return null;
-  if (combined instanceof Date) return isNaN(combined.getTime()) ? null : combined;
-  const parsed = new Date(String(combined).trim());
-  return isNaN(parsed.getTime()) ? null : parsed;
+  const combined = getConfigValue("PROBLEM_CLOSE_DATETIME") || getConfigValue("ProblemCloseAt") || getConfigValue("problemCloseAt");
+  if (combined) {
+    const parsed = parseFlexibleDateTime(combined);
+    if (parsed) return parsed;
+  }
+  const dateVal = getConfigValue("ProblemCloseDate");
+  const timeVal = getConfigValue("ProblemCloseTime");
+  if (dateVal !== null && dateVal !== undefined && String(dateVal).trim() !== "") {
+    const parsed = parseConfiguredDateTime(dateVal, timeVal || "23:59:59");
+    if (parsed) return parsed;
+  }
+  return null;
 }
 
 

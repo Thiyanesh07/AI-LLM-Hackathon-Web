@@ -163,6 +163,24 @@ function doPost(e) {
       case "GET_MY_SELECTION":
         return createJsonResponse(apiGetMySelection(request.idToken));
 
+      case "SUBMIT_FEEDBACK":
+        return createJsonResponse(apiSubmitFeedback(request.idToken, request.data));
+
+      case "GET_MY_FEEDBACK_STATUS":
+        return createJsonResponse(apiGetMyFeedbackStatus(request.idToken));
+
+      case "ADMIN_GET_FEEDBACK":
+        return createJsonResponse(apiAdminGetFeedback(request.idToken));
+
+      case "SUBMIT_FINAL_SUBMISSION":
+        return createJsonResponse(apiSubmitFinalSubmission(request.idToken, request.data));
+
+      case "GET_MY_FINAL_SUBMISSION_STATUS":
+        return createJsonResponse(apiGetMyFinalSubmissionStatus(request.idToken));
+
+      case "ADMIN_GET_FINAL_SUBMISSIONS":
+        return createJsonResponse(apiAdminGetFinalSubmissions(request.idToken));
+
       case "ADMIN_GET_STATS":
         return createJsonResponse(apiAdminGetStats(request.idToken));
 
@@ -249,7 +267,9 @@ function doPost(e) {
             selections: getSheetRecords(SHEET_NAMES.SELECTIONS),
             domains: getSheetRecords(SHEET_NAMES.DOMAINS),
             admins: getSheetRecords(SHEET_NAMES.ADMINS),
-            config: getSheetRecords(SHEET_NAMES.CONFIG)
+            config: getSheetRecords(SHEET_NAMES.CONFIG),
+            feedback: getSheetRecords(SHEET_NAMES.FEEDBACK),
+            finalSubmissions: getSheetRecords(SHEET_NAMES.FINAL_SUBMISSIONS)
           }
         });
 
@@ -322,10 +342,16 @@ function testDoPost() {
 }
 
 
-function doGet() {
-  return HtmlService
-    .createHtmlOutputFromFile("index")
-    .setTitle("AI Hackathon");
+function doGet(e) {
+  if (e && e.parameter && e.parameter.view === "html") {
+    return HtmlService
+      .createHtmlOutputFromFile("index")
+      .setTitle("AI Hackathon");
+  }
+
+  return ContentService
+    .createTextOutput(JSON.stringify(getHealth()))
+    .setMimeType(ContentService.MimeType.JSON);
 }
 
 

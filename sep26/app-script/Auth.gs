@@ -148,7 +148,8 @@ function getParticipantTeamSnapshot(team) {
   const domainId = String(team.DomainID || "").trim().toUpperCase();
   const domain = getDomainById(domainId);
   const selection = getLockedSelectionByTeamId(canonicalTeamId);
-  const releaseAt = getProblemReleaseAt();
+  const releaseAtObj = getProblemReleaseAt();
+  const closeAtObj = getProblemCloseAt();
   const released = isProblemReleased();
   const selectionOpen = isSelectionOpen();
 
@@ -191,9 +192,9 @@ function getParticipantTeamSnapshot(team) {
     status: String(team.Status || "").trim().toUpperCase(),
     createdAt: team.CreatedAt || null,
     selectionStatus: selectionStatus,
-    releaseAt: releaseAt,
+    releaseAt: releaseAtObj && releaseAtObj instanceof Date && !isNaN(releaseAtObj.getTime()) ? releaseAtObj.toISOString() : (releaseAtObj ? String(releaseAtObj) : null),
     problemsReleased: released,
-    closeAt: getProblemCloseAt(),
+    closeAt: closeAtObj && closeAtObj instanceof Date && !isNaN(closeAtObj.getTime()) ? closeAtObj.toISOString() : (closeAtObj ? String(closeAtObj) : null),
     selection: selection ? formatSelection(selection) : null,
     problems: problems
   };

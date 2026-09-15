@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { createTestEngine, IDS } from "./intellix-engine.mjs";
+import { assertJsonSerializable, resolveIdToken } from "../services/appsScriptApi.js";
+
 const results = [];
 function test(phase, name, fn) { try { fn(); results.push({ phase, name, pass: true }); } catch (error) { results.push({ phase, name, pass: false, error }); } }
 function expectCode(response, code) { assert.equal(response.success, false); assert.equal(response.code, code); }
@@ -35,8 +37,34 @@ test("PHASE 9", "removeSelectionByPsid: removes corrupt selection by PSID withou
   assert.ok(!e.state().selections.some((s) => s.psid === "EDU-01"), "Corrupt selection removed");
 });
 
+// --- PHASE 10: Auth Type Safety & Serializability ---
+test("PHASE 10", "assertJsonSerializable rejects non-serializable objects", () => {
+  assert.equal(assertJsonSerializable({ name: "valid", count: 123, active: true }), true);
+
+  const circular = {};
+  circular.self = circular;
+  assert.throws(() => assertJsonSerializable(circular), /Circular structure/);
+
+  const windowObj = { constructor: { name: "Window" } };
+  assert.throws(() => assertJsonSerializable(windowObj), /not serializable/);
+
+  const mouseEventObj = { constructor: { name: "MouseEvent" } };
+  assert.throws(() => assertJsonSerializable(mouseEventObj), /not serializable/);
+});
+
+test("PHASE 10", "resolveIdToken enforces string typing and rejects Event/Window objects", () => {
+  const fakeEvent = { constructor: { name: "MouseEvent" }, target: {} };
+  const fakeWindow = { constructor: { name: "Window" }, window: {} };
+
+  assert.equal(resolveIdToken("valid_token_123"), "valid_token_123");
+  assert.equal(resolveIdToken(fakeEvent), null);
+  assert.equal(resolveIdToken(fakeWindow), null);
+  assert.equal(resolveIdToken(null), null);
+  assert.equal(resolveIdToken(undefined), null);
+});
+
 const failed = results.filter((result) => !result.pass);
-for (const phase of ["PHASE 6", "PHASE 7", "PHASE 8", "PHASE 9"]) {
+for (const phase of ["PHASE 6", "PHASE 7", "PHASE 8", "PHASE 9", "PHASE 10"]) {
   const phaseResults = results.filter((result) => result.phase === phase);
   console.log(`${phase}\n${phaseResults.filter((r) => r.pass).length}/${phaseResults.length} PASSED`);
   for (const result of phaseResults.filter((r) => !r.pass)) console.log(`FAIL ${result.name}\nEXPECTED: test invariant\nACTUAL: ${result.error.message}\nROOT CAUSE: ${result.error.stack?.split("\n")[1]?.trim() || "unknown"}`);
@@ -46,4 +74,5 @@ console.log(`CONCURRENCY: ${results.find((r) => r.name.includes("concurrent"))?.
 console.log(`IDEMPOTENCY: ${results.find((r) => r.name.includes("idempotent"))?.pass ? "PASS" : "FAIL"}`);
 console.log(`ADMIN CRUD: ${results.find((r) => r.name.includes("admin CRUD"))?.pass ? "PASS" : "FAIL"}`);
 console.log(`SELECTION RESET: ${results.filter((r) => r.phase === "PHASE 9").every((r) => r.pass) ? "PASS" : "FAIL"}`);
+console.log(`TYPE SAFETY: ${results.filter((r) => r.phase === "PHASE 10").every((r) => r.pass) ? "PASS" : "FAIL"}`);
 if (failed.length) process.exitCode = 1;

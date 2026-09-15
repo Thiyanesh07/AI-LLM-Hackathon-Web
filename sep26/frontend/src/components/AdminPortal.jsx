@@ -2,11 +2,11 @@ import { useEffect, useEffectEvent, useRef, useState } from "react";
 import {
   apiAdminAddProblem, apiAdminAddTeam, apiAdminCloseSelection,
   apiAdminDisableProblem, apiAdminGetConfiguration, apiAdminGetDomains,
-  apiAdminGetProblems, apiAdminGetSelections, apiAdminGetStats, apiAdminGetTeams,
+  apiAdminGetFeedback, apiAdminGetFinalSubmissions, apiAdminGetProblems, apiAdminGetSelections, apiAdminGetStats, apiAdminGetTeams,
   apiAdminGetAllData, apiAdminOpenSelection, apiAdminReleaseNow, apiAdminRemoveAllSelections,
   apiAdminRemoveSelectionByPsid, apiAdminRemoveTeamSelection,
   apiAdminSetAllowReset, apiAdminUpdateConfiguration, apiAdminUpdateDomain,
-  apiAdminUpdateProblem, apiAdminUpdateTeam
+  apiAdminUpdateProblem, apiAdminUpdateTeam, resolveIdToken
 } from "../services/appsScriptApi";
 import { clearAuthToken, getAuthToken, setAuthToken } from "../services/authSession";
 import {
@@ -60,17 +60,60 @@ function Panel({ title, children }) {
   );
 }
 
+function ModalOverlay({ title, onClose, children }) {
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  return (
+    <div
+      className="admin-modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="admin-modal-title"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="admin-modal-card glass-card">
+        <div className="admin-modal-header">
+          <h2 id="admin-modal-title">{title}</h2>
+          <button
+            type="button"
+            className="btn-close btn-close-white"
+            aria-label="Close"
+            onClick={onClose}
+          />
+        </div>
+        <div className="admin-modal-body">{children}</div>
+      </div>
+    </div>
+  );
+}
+
 function AdminPortal({ setPage }) {
   const googleButtonRef = useRef(null);
   const [token, setToken] = useState(() => getAuthToken() || mockAdminIdentity);
   const [view, setView] = useState(() => (getAuthToken() || mockAdminIdentity ? "loading" : "login"));
   const [section, setSection] = useState("overview");
-  const [data, setData] = useState({ stats: null, teams: [], problems: [], domains: [], config: null, selections: [] });
+  const [data, setData] = useState({ stats: null, teams: [], problems: [], domains: [], config: null, selections: [], feedback: [], finalSubmissions: [] });
   const [error, setError] = useState("");
 
   const gisInitializedRef = useRef(false);
 
-  const refresh = async (idToken = token) => {
+  const refresh = async (idTokenParam) => {
+    const idToken = resolveIdToken(idTokenParam) || token;
+    if (!idToken || typeof idToken !== "string") {
+      clearAuthToken();
+      setToken("");
+      setView("login");
+      return;
+    }
+
     setView("loading");
     setError("");
 
@@ -88,8 +131,10 @@ function AdminPortal({ setPage }) {
         const config = normalizeConfig(allDataRes.data.config);
         const rawSelections = Array.isArray(allDataRes.data.selections) ? allDataRes.data.selections : [];
         const selections = rawSelections.map(normalizeSelection).filter(Boolean);
+        const feedback = Array.isArray(allDataRes.data.feedback) ? allDataRes.data.feedback : [];
+        const finalSubmissions = Array.isArray(allDataRes.data.finalSubmissions) ? allDataRes.data.finalSubmissions : [];
 
-        setData({ stats, teams, problems, domains, config, selections });
+        setData({ stats, teams, problems, domains, config, selections, feedback, finalSubmissions });
         setView("dashboard");
         return;
       }
@@ -109,7 +154,9 @@ function AdminPortal({ setPage }) {
         apiAdminGetProblems(idToken),
         apiAdminGetDomains(idToken),
         apiAdminGetConfiguration(idToken),
-        apiAdminGetSelections(idToken)
+        apiAdminGetSelections(idToken),
+        apiAdminGetFeedback(idToken),
+        apiAdminGetFinalSubmissions(idToken)
       ]);
 
       const authFailed = responses.find((response) => ["INVALID_TOKEN", "INVALID_AUDIENCE", "AUTH_REQUIRED"].includes(response?.code));
@@ -137,6 +184,8 @@ function AdminPortal({ setPage }) {
       const config = normalizeConfig(responses[4].data);
       const rawSelections = Array.isArray(responses[5].data) ? responses[5].data : (responses[5].data?.selections || []);
       const selections = rawSelections.map(normalizeSelection).filter(Boolean);
+      const feedback = Array.isArray(responses[6]?.data?.feedback) ? responses[6].data.feedback : (Array.isArray(responses[6]?.feedback) ? responses[6].feedback : []);
+      const finalSubmissions = Array.isArray(responses[7]?.data?.finalSubmissions) ? responses[7].data.finalSubmissions : (Array.isArray(responses[7]?.finalSubmissions) ? responses[7].finalSubmissions : []);
 
       setData({
         stats,
@@ -144,7 +193,9 @@ function AdminPortal({ setPage }) {
         problems,
         domains,
         config,
-        selections
+        selections,
+        feedback,
+        finalSubmissions
       });
       setView("dashboard");
     } catch (err) {
@@ -159,9 +210,12 @@ function AdminPortal({ setPage }) {
 
   useEffect(() => {
     if (view !== "login" || !googleButtonRef.current) return undefined;
-    const initialize = () => {
+    // Always attempt to render button when login view appears.
+    // GIS library init is one-time; button render is needed on every login view mount.
+    const tryRender = () => {
       const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-      if (!window.google || !clientId || !googleButtonRef.current) return false;
+      if (!window.google?.accounts?.id || !clientId || !googleButtonRef.current) return false;
+      // Initialize the GIS library only once per page load.
       if (!gisInitializedRef.current) {
         window.google.accounts.id.initialize({
           client_id: clientId,
@@ -174,13 +228,19 @@ function AdminPortal({ setPage }) {
         });
         gisInitializedRef.current = true;
       }
-      window.google.accounts.id.renderButton(googleButtonRef.current, {
-        theme: "outline", size: "large", text: "signin_with", shape: "rectangular", width: 320
-      });
+      // Always render the button — re-render is safe and needed after view transitions.
+      try {
+        window.google.accounts.id.renderButton(googleButtonRef.current, {
+          theme: "outline", size: "large", text: "signin_with", shape: "rectangular", width: 320
+        });
+      } catch (e) {
+        console.warn("[GIS_RENDER] renderButton failed:", e.message);
+        return false;
+      }
       return true;
     };
-    if (initialize()) return undefined;
-    const interval = window.setInterval(() => { if (initialize()) window.clearInterval(interval); }, 100);
+    if (tryRender()) return undefined;
+    const interval = window.setInterval(() => { if (tryRender()) window.clearInterval(interval); }, 100);
     return () => window.clearInterval(interval);
   }, [view]);
 
@@ -228,7 +288,7 @@ function AdminPortal({ setPage }) {
     setView("login");
   };
 
-  const tabs = ["overview", "teams", "problems", "domains", "selections", "release", "configuration"];
+  const tabs = ["overview", "teams", "problems", "domains", "selections", "feedback", "finalSubmissions", "release", "configuration"];
 
   return (
     <section className="admin-shell container-fluid px-3 px-lg-4 py-4">
@@ -250,33 +310,56 @@ function AdminPortal({ setPage }) {
       <nav className="admin-tabs" aria-label="Admin sections">
         {tabs.map((tab) => (
           <button className={section === tab ? "active" : ""} key={tab} type="button" onClick={() => setSection(tab)}>
-            {tab}
+            {tab === "finalSubmissions" ? "Final Submissions" : tab}
           </button>
         ))}
       </nav>
-      {section === "overview" && <Overview stats={data.stats} onRefresh={refresh} />}
-      {section === "teams" && <Teams teams={data.teams} domains={data.domains} token={token} onRefresh={refresh} />}
-      {section === "problems" && <Problems problems={data.problems} domains={data.domains} token={token} onRefresh={refresh} />}
-      {section === "domains" && <Domains domains={data.domains} token={token} onRefresh={refresh} />}
-      {section === "selections" && <Selections teams={data.teams} selections={data.selections} config={data.config} token={token} onRefresh={refresh} />}
-      {section === "release" && <Release config={data.config} token={token} onRefresh={refresh} />}
-      {section === "configuration" && <Configuration config={data.config} token={token} onRefresh={refresh} />}
+      {section === "overview" && <Overview stats={data.stats} feedbackCount={data.feedback?.length || 0} finalSubmissionsCount={data.finalSubmissions?.length || 0} onRefresh={() => refresh()} />}
+      {section === "teams" && <Teams teams={data.teams} domains={data.domains} token={token} onRefresh={() => refresh()} />}
+      {section === "problems" && <Problems problems={data.problems} domains={data.domains} token={token} onRefresh={() => refresh()} />}
+      {section === "domains" && <Domains domains={data.domains} token={token} onRefresh={() => refresh()} />}
+      {section === "selections" && <Selections teams={data.teams} selections={data.selections} config={data.config} token={token} onRefresh={() => refresh()} />}
+      {section === "feedback" && <FeedbackAdmin feedback={data.feedback} onRefresh={() => refresh()} />}
+      {section === "finalSubmissions" && <FinalSubmissionsAdmin finalSubmissions={data.finalSubmissions} onRefresh={() => refresh()} />}
+      {section === "release" && <Release config={data.config} token={token} onRefresh={() => refresh()} />}
+      {section === "configuration" && (
+        <Configuration
+          key={`${data.config?.problemReleaseAt}-${data.config?.problemCloseAt}-${data.config?.allowSelectionReset}`}
+          config={data.config}
+          token={token}
+          onRefresh={() => refresh()}
+        />
+      )}
     </section>
   );
 }
 
-function Overview({ stats, onRefresh }) {
+function Overview({ stats, feedbackCount = 0, finalSubmissionsCount = 0, onRefresh }) {
   if (!stats) return null;
+  const statItems = [
+    ["Registered teams", stats.registeredTeams],
+    ["Pending teams", stats.pendingTeams],
+    ["Locked teams", stats.lockedSelections],
+    ["Total problems", stats.totalProblems],
+    ["Available problems", stats.availableProblems]
+  ];
+
+  const submittedCount = stats.feedbackSubmitted !== undefined ? stats.feedbackSubmitted : feedbackCount;
+  statItems.push(["Feedback Submitted", submittedCount]);
+  if (stats.activeTeams !== undefined) {
+    statItems.push(["Feedback Pending", Math.max(stats.activeTeams - submittedCount, 0)]);
+  }
+
+  const finalCount = stats.finalSubmissionsCount !== undefined ? stats.finalSubmissionsCount : finalSubmissionsCount;
+  statItems.push(["Final Submissions", finalCount]);
+  if (stats.lockedSelections !== undefined) {
+    statItems.push(["Final Submissions Pending", Math.max(stats.lockedSelections - finalCount, 0)]);
+  }
+
   return (
     <div className="admin-content">
       <div className="admin-stat-grid">
-        {[
-          ["Registered teams", stats.registeredTeams],
-          ["Pending teams", stats.pendingTeams],
-          ["Locked teams", stats.lockedSelections],
-          ["Total problems", stats.totalProblems],
-          ["Available problems", stats.availableProblems]
-        ].map(([label, value]) => (
+        {statItems.map(([label, value]) => (
           <div className="admin-stat glass-card" key={label}>
             <span>{label}</span>
             <strong>{value}</strong>
@@ -284,7 +367,7 @@ function Overview({ stats, onRefresh }) {
         ))}
       </div>
       <Panel title="Domain utilization">
-        <button className="btn btn-outline-glass mb-3" type="button" onClick={onRefresh}>
+        <button className="btn btn-outline-glass mb-3" type="button" onClick={() => onRefresh()}>
           Refresh
         </button>
         {(stats.domains || []).map((domain) => (
@@ -303,43 +386,340 @@ function Overview({ stats, onRefresh }) {
   );
 }
 
+function FeedbackAdmin({ feedback = [], onRefresh }) {
+  const [query, setQuery] = useState("");
+
+  const filtered = (feedback || []).filter((item) =>
+    `${item.teamId || item.TeamID} ${item.teamName || item.TeamName} ${item.domain || item.Domain} ${item.feedback || item.Feedback}`
+      .toLowerCase()
+      .includes(query.toLowerCase())
+  );
+
+  return (
+    <div className="admin-content">
+      <Panel title="Team Feedback">
+        <div className="admin-toolbar mb-3 d-flex flex-column flex-sm-row justify-content-between gap-2">
+          <input
+            aria-label="Search feedback"
+            placeholder="Search team ID, name, domain, or feedback content..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <button className="btn btn-outline-glass align-self-start align-self-sm-auto" type="button" onClick={() => onRefresh()}>
+            <i className="bi bi-arrow-clockwise me-1"></i>Refresh
+          </button>
+        </div>
+        <div className="admin-table-wrap">
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>Team ID</th>
+                <th>Team Name</th>
+                <th>Domain</th>
+                <th>Feedback</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={4} style={{ textAlign: "center", color: "var(--text-muted)" }}>
+                    No feedback entries found.
+                  </td>
+                </tr>
+              ) : (
+                filtered.map((item, index) => (
+                  <tr key={`${item.teamId || item.TeamID}-${index}`}>
+                    <td><strong>{item.teamId || item.TeamID}</strong></td>
+                    <td>{item.teamName || item.TeamName}</td>
+                    <td><span className="badge bg-secondary">{item.domain || item.Domain || item.DomainID}</span></td>
+                    <td style={{ whiteSpace: "pre-wrap", maxWidth: "450px" }}>{item.feedback || item.Feedback}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+function FinalSubmissionsAdmin({ finalSubmissions = [], onRefresh }) {
+  const [query, setQuery] = useState("");
+
+  const filtered = (finalSubmissions || []).filter((item) =>
+    `${item.teamId || item.TeamID} ${item.teamName || item.TeamName} ${item.psId || item.PSID} ${item.teamLeadName || item.TeamLeadName} ${item.teamLeadEmail || item.TeamLeadEmail} ${item.feedback || item.Feedback}`
+      .toLowerCase()
+      .includes(query.toLowerCase())
+  );
+
+  return (
+    <div className="admin-content">
+      <Panel title="Final Submissions">
+        <div className="admin-toolbar mb-3 d-flex flex-column flex-sm-row justify-content-between gap-2">
+          <input
+            aria-label="Search final submissions"
+            placeholder="Search team ID, team name, PS ID, leader, or feedback..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <button className="btn btn-outline-glass align-self-start align-self-sm-auto" type="button" onClick={() => onRefresh()}>
+            <i className="bi bi-arrow-clockwise me-1"></i>Refresh
+          </button>
+        </div>
+        <div className="admin-table-wrap">
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>Team ID</th>
+                <th>Team Name</th>
+                <th>PS ID</th>
+                <th>Team Lead Name</th>
+                <th>Team Lead Email</th>
+                <th>Feedback / Submission Details</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={6} style={{ textAlign: "center", color: "var(--text-muted)" }}>
+                    No final submissions found.
+                  </td>
+                </tr>
+              ) : (
+                filtered.map((item, index) => (
+                  <tr key={`${item.teamId || item.TeamID}-${index}`}>
+                    <td><strong>{item.teamId || item.TeamID}</strong></td>
+                    <td>{item.teamName || item.TeamName}</td>
+                    <td><span className="badge bg-info text-dark">{item.psId || item.PSID}</span></td>
+                    <td>{item.teamLeadName || item.TeamLeadName}</td>
+                    <td><span className="participant-email">{item.teamLeadEmail || item.TeamLeadEmail}</span></td>
+                    <td style={{ whiteSpace: "pre-wrap", maxWidth: "450px" }}>{item.feedback || item.Feedback}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
 function TeamFields({ value, onChange, domains }) {
   const set = (key, next) => onChange({ ...value, [key]: next });
+
+  const membersList = value.members || [];
+  const activeMembers = membersList.filter((m, i) => i === 0 || m.name || m.registerNumber || m.department);
+  const displayMembers = activeMembers.length > 0 ? activeMembers : [{ name: "", registerNumber: "", department: "" }];
+
+  const handleMemberChange = (index, field, val) => {
+    const nextMembers = [...membersList];
+    while (nextMembers.length <= index) {
+      nextMembers.push({ name: "", registerNumber: "", department: "" });
+    }
+    nextMembers[index] = { ...nextMembers[index], [field]: val };
+    onChange({ ...value, members: nextMembers });
+  };
+
+  const addMemberSlot = () => {
+    if (membersList.length < 4) {
+      const nextMembers = [...membersList, { name: "", registerNumber: "", department: "" }];
+      onChange({ ...value, members: nextMembers });
+    }
+  };
+
+  const removeMemberSlot = (index) => {
+    const nextMembers = membersList.filter((_, i) => i !== index);
+    onChange({ ...value, members: nextMembers });
+  };
+
   return (
-    <div className="admin-form-grid">
-      <label>Team name
-        <input value={value.teamName || ""} onChange={(e) => set("teamName", e.target.value)} required />
-      </label>
-      <label>Domain
-        <select value={value.domainId || "AGR"} onChange={(e) => set("domainId", e.target.value)}>
-          {domains.filter((d) => d.status === "ACTIVE").map((d) => (
-            <option key={d.domainId} value={d.domainId}>{d.domainId} - {d.domainName}</option>
-          ))}
-        </select>
-      </label>
-      <label>Leader name
-        <input value={value.leaderName || ""} onChange={(e) => set("leaderName", e.target.value)} required />
-      </label>
-      <label>Leader email
-        <input type="email" value={value.leaderEmail || ""} onChange={(e) => set("leaderEmail", e.target.value)} required />
-      </label>
-      <label>Leader mobile
-        <input value={value.leaderMobile || ""} onChange={(e) => set("leaderMobile", e.target.value)} required />
-      </label>
-      <label>Leader register number
-        <input value={value.leaderRegisterNumber || ""} onChange={(e) => set("leaderRegisterNumber", e.target.value)} required />
-      </label>
-      <label>Leader department
-        <input value={value.leaderDepartment || ""} onChange={(e) => set("leaderDepartment", e.target.value)} required />
-      </label>
-      {(value.members || []).map((member, index) => (
-        <div className="admin-member-fields" key={index}>
-          <strong>Member {index + 1}</strong>
-          <input aria-label={`Member ${index + 1} name`} placeholder="Name" value={member.name || ""} onChange={(e) => { const members = [...value.members]; members[index] = { ...member, name: e.target.value }; onChange({ ...value, members }); }} />
-          <input aria-label={`Member ${index + 1} register number`} placeholder="Register number" value={member.registerNumber || ""} onChange={(e) => { const members = [...value.members]; members[index] = { ...member, registerNumber: e.target.value }; onChange({ ...value, members }); }} />
-          <input aria-label={`Member ${index + 1} department`} placeholder="Department" value={member.department || ""} onChange={(e) => { const members = [...value.members]; members[index] = { ...member, department: e.target.value }; onChange({ ...value, members }); }} />
+    <div className="admin-form-container">
+      {/* SECTION 1: Team Information */}
+      <div className="admin-form-section">
+        <div className="admin-form-section-header">
+          <h3 className="admin-form-section-title">
+            <i className="bi bi-people-fill"></i> Team Information
+          </h3>
         </div>
-      ))}
+        <div className="admin-form-grid">
+          <div className="admin-form-group">
+            <label className="admin-form-label">
+              Team ID <span className="admin-form-label-badge">(Read-only)</span>
+            </label>
+            <input
+              type="text"
+              className="admin-input-readonly"
+              value={value.teamId || "Auto-assigned"}
+              readOnly
+              tabIndex={-1}
+            />
+          </div>
+          <div className="admin-form-group">
+            <label className="admin-form-label">Team Name *</label>
+            <input
+              type="text"
+              value={value.teamName || ""}
+              onChange={(e) => set("teamName", e.target.value)}
+              placeholder="Enter team name"
+              required
+            />
+          </div>
+          <div className="admin-form-group">
+            <label className="admin-form-label">Domain *</label>
+            <select
+              value={value.domainId || "AGR"}
+              onChange={(e) => set("domainId", e.target.value)}
+            >
+              {domains.map((d) => (
+                <option key={d.domainId} value={d.domainId}>
+                  {d.domainId} - {d.domainName} {d.status !== "ACTIVE" ? "(Disabled)" : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="admin-form-group">
+            <label className="admin-form-label">Status *</label>
+            <select
+              value={value.status || "ACTIVE"}
+              onChange={(e) => set("status", e.target.value)}
+            >
+              <option value="ACTIVE">ACTIVE</option>
+              <option value="DISABLED">DISABLED</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* SECTION 2: Leader Information */}
+      <div className="admin-form-section">
+        <div className="admin-form-section-header">
+          <h3 className="admin-form-section-title">
+            <i className="bi bi-person-badge-fill"></i> Leader Information
+          </h3>
+        </div>
+        <div className="admin-form-grid">
+          <div className="admin-form-group">
+            <label className="admin-form-label">Leader Name *</label>
+            <input
+              type="text"
+              value={value.leaderName || ""}
+              onChange={(e) => set("leaderName", e.target.value)}
+              placeholder="Leader full name"
+              required
+            />
+          </div>
+          <div className="admin-form-group">
+            <label className="admin-form-label">
+              Leader Email {value.teamId ? <span className="admin-form-label-badge">(Read-only)</span> : "*"}
+            </label>
+            <input
+              type="email"
+              className={value.teamId ? "admin-input-readonly" : ""}
+              value={value.leaderEmail || ""}
+              onChange={(e) => set("leaderEmail", e.target.value)}
+              placeholder="leader@example.com"
+              readOnly={Boolean(value.teamId)}
+              required
+            />
+          </div>
+          <div className="admin-form-group">
+            <label className="admin-form-label">Register Number</label>
+            <input
+              type="text"
+              value={value.leaderRegisterNumber || ""}
+              onChange={(e) => set("leaderRegisterNumber", e.target.value)}
+              placeholder="Register / Roll number"
+            />
+          </div>
+          <div className="admin-form-group">
+            <label className="admin-form-label">Department</label>
+            <input
+              type="text"
+              value={value.leaderDepartment || ""}
+              onChange={(e) => set("leaderDepartment", e.target.value)}
+              placeholder="e.g. CSE / IT"
+            />
+          </div>
+          <div className="admin-form-group">
+            <label className="admin-form-label">Leader Mobile</label>
+            <input
+              type="tel"
+              value={value.leaderMobile || ""}
+              onChange={(e) => set("leaderMobile", e.target.value)}
+              placeholder="Mobile number"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* SECTION 3: Member Information */}
+      <div className="admin-form-section">
+        <div className="admin-form-section-header">
+          <h3 className="admin-form-section-title">
+            <i className="bi bi-people"></i> Member Information
+          </h3>
+          {displayMembers.length < 4 && (
+            <button
+              type="button"
+              className="btn btn-outline-glass btn-sm"
+              onClick={addMemberSlot}
+              style={{ fontSize: "0.78rem", minHeight: "32px" }}
+            >
+              <i className="bi bi-plus-lg me-1"></i> Add Member
+            </button>
+          )}
+        </div>
+        <div className="d-flex flex-column gap-3">
+          {displayMembers.map((member, index) => (
+            <div className="admin-member-row" key={index}>
+              <div className="d-flex justify-content-between align-items-center mb-2">
+                <span className="admin-member-label">Member {index + 1}</span>
+                {index > 0 && (
+                  <button
+                    type="button"
+                    className="btn btn-link text-danger p-0 border-0"
+                    style={{ fontSize: "0.8rem", textDecoration: "none" }}
+                    onClick={() => removeMemberSlot(index)}
+                  >
+                    <i className="bi bi-trash me-1"></i> Remove
+                  </button>
+                )}
+              </div>
+              <div className="admin-member-fields">
+                <div className="admin-form-group">
+                  <label className="admin-form-label">Name</label>
+                  <input
+                    aria-label={`Member ${index + 1} name`}
+                    value={member.name || ""}
+                    onChange={(e) => handleMemberChange(index, "name", e.target.value)}
+                    placeholder="Full name"
+                  />
+                </div>
+                <div className="admin-form-group">
+                  <label className="admin-form-label">Register Number</label>
+                  <input
+                    aria-label={`Member ${index + 1} register number`}
+                    value={member.registerNumber || ""}
+                    onChange={(e) => handleMemberChange(index, "registerNumber", e.target.value)}
+                    placeholder="Register number"
+                  />
+                </div>
+                <div className="admin-form-group">
+                  <label className="admin-form-label">Department</label>
+                  <input
+                    aria-label={`Member ${index + 1} department`}
+                    value={member.department || ""}
+                    onChange={(e) => handleMemberChange(index, "department", e.target.value)}
+                    placeholder="Department"
+                  />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -349,19 +729,51 @@ function Teams({ teams, domains, token, onRefresh }) {
   const [status, setStatus] = useState("");
   const [form, setForm] = useState(null);
   const [message, setMessage] = useState("");
+  const [modalError, setModalError] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const filtered = teams.filter((team) =>
     `${team.teamId} ${team.teamName} ${team.leaderName} ${team.leaderEmail} ${team.domainId}`.toLowerCase().includes(query.toLowerCase()) &&
     (!status || team.status === status)
   );
 
+  const openAdd = () => {
+    setModalError("");
+    setForm({
+      ...emptyTeam,
+      members: [
+        { name: "", registerNumber: "", department: "" },
+        { name: "", registerNumber: "", department: "" },
+        { name: "", registerNumber: "", department: "" },
+        { name: "", registerNumber: "", department: "" }
+      ]
+    });
+  };
+
+  const openEdit = (team) => {
+    setModalError("");
+    const members = [...(team.members || [])];
+    while (members.length < 4) {
+      members.push({ name: "", registerNumber: "", department: "" });
+    }
+    setForm({ ...team, members });
+  };
+
   const save = async (event) => {
     event.preventDefault();
+    setSaving(true);
+    setModalError("");
     const response = form.teamId
       ? await apiAdminUpdateTeam(token, form)
       : await apiAdminAddTeam(token, form);
-    setMessage(response.success ? "Team saved successfully." : (response.error || "Failed to save team."));
-    if (response.success) { setForm(null); onRefresh(); }
+    setSaving(false);
+    if (response.success) {
+      setMessage("Team saved successfully.");
+      setForm(null);
+      await onRefresh();
+    } else {
+      setModalError(response.error || "Failed to save team.");
+    }
   };
 
   return (
@@ -374,7 +786,7 @@ function Teams({ teams, domains, token, onRefresh }) {
             <option value="ACTIVE">ACTIVE</option>
             <option value="DISABLED">DISABLED</option>
           </select>
-          <button className="btn btn-brand" type="button" onClick={() => setForm({ ...emptyTeam, members: [{ name: "", registerNumber: "", department: "" }] })}>
+          <button className="btn btn-brand" type="button" onClick={openAdd}>
             Add team
           </button>
         </div>
@@ -405,7 +817,7 @@ function Teams({ teams, domains, token, onRefresh }) {
                     <td>{team.status}</td>
                     <td>{team.selection?.psId ? <strong>{team.selection.psId}</strong> : <span className="text-muted">Pending</span>}</td>
                     <td>
-                      <button className="btn btn-outline-glass" type="button" onClick={() => setForm({ ...team })}>
+                      <button className="btn btn-outline-glass" type="button" onClick={() => openEdit(team)}>
                         Edit
                       </button>
                     </td>
@@ -417,12 +829,49 @@ function Teams({ teams, domains, token, onRefresh }) {
         </div>
       </Panel>
       {form && (
-        <form className="admin-panel glass-card" onSubmit={save}>
-          <div className="admin-panel-title"><h2>{form.teamId ? `Edit ${form.teamId}` : "Add team"}</h2></div>
-          <TeamFields value={form} onChange={setForm} domains={domains} />
-          <button className="btn btn-brand" type="submit">Save team</button>
-          <button className="btn btn-outline-glass ms-2" type="button" onClick={() => setForm(null)}>Cancel</button>
-        </form>
+        <ModalOverlay
+          title={
+            <div className="d-flex align-items-center gap-2">
+              <span>{form.teamId ? `Edit Team: ${form.teamId}` : "Add New Team"}</span>
+              {form.teamId && (
+                <span className={`badge ${form.status === "ACTIVE" ? "bg-success" : "bg-secondary"}`} style={{ fontSize: "0.75rem" }}>
+                  {form.status || "ACTIVE"}
+                </span>
+              )}
+            </div>
+          }
+          onClose={() => { if (!saving) { setForm(null); setModalError(""); } }}
+        >
+          <form onSubmit={save}>
+            <TeamFields value={form} onChange={setForm} domains={domains} />
+            {modalError && (
+              <div className="participant-alert mt-3" role="alert">
+                <i className="bi bi-exclamation-triangle-fill me-2"></i>
+                {modalError}
+              </div>
+            )}
+            <div className="admin-modal-actions">
+              <button
+                className="btn btn-outline-glass"
+                type="button"
+                disabled={saving}
+                onClick={() => { setForm(null); setModalError(""); }}
+              >
+                Cancel
+              </button>
+              <button className="btn btn-brand" type="submit" disabled={saving}>
+                {saving ? (
+                  <>
+                    <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                    Saving...
+                  </>
+                ) : (
+                  "Save Team"
+                )}
+              </button>
+            </div>
+          </form>
+        </ModalOverlay>
       )}
     </div>
   );
@@ -434,6 +883,8 @@ function Problems({ problems, domains, token, onRefresh }) {
   const [statusFilter, setStatusFilter] = useState("");
   const [form, setForm] = useState(null);
   const [message, setMessage] = useState("");
+  const [modalError, setModalError] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const filtered = problems.filter((problem) =>
     `${problem.psId} ${problem.title} ${problem.description} ${problem.domainId}`.toLowerCase().includes(query.toLowerCase()) &&
@@ -441,13 +892,31 @@ function Problems({ problems, domains, token, onRefresh }) {
     (!statusFilter || problem.status === statusFilter)
   );
 
+  const openAdd = () => {
+    setModalError("");
+    setForm({ domainId: "AGR", title: "", description: "", whatToBuild: "" });
+  };
+
+  const openEdit = (problem) => {
+    setModalError("");
+    setForm({ ...problem });
+  };
+
   const save = async (event) => {
     event.preventDefault();
+    setSaving(true);
+    setModalError("");
     const response = form.psId
       ? await apiAdminUpdateProblem(token, form)
       : await apiAdminAddProblem(token, form);
-    setMessage(response.success ? "Problem saved successfully." : (response.error || "Failed to save problem."));
-    if (response.success) { setForm(null); onRefresh(); }
+    setSaving(false);
+    if (response.success) {
+      setMessage("Problem saved successfully.");
+      setForm(null);
+      await onRefresh();
+    } else {
+      setModalError(response.error || "Failed to save problem.");
+    }
   };
 
   const disable = async (psId) => {
@@ -471,7 +940,7 @@ function Problems({ problems, domains, token, onRefresh }) {
             <option value="ACTIVE">ACTIVE</option>
             <option value="DISABLED">DISABLED</option>
           </select>
-          <button className="btn btn-brand" type="button" onClick={() => setForm({ domainId: "AGR", title: "", description: "", whatToBuild: "" })}>
+          <button className="btn btn-brand" type="button" onClick={openAdd}>
             Add problem
           </button>
         </div>
@@ -498,7 +967,7 @@ function Problems({ problems, domains, token, onRefresh }) {
                     <td>{problem.title}</td>
                     <td>{problem.status}</td>
                     <td>
-                      <button className="btn btn-outline-glass me-1" type="button" onClick={() => setForm({ ...problem })}>
+                      <button className="btn btn-outline-glass me-1" type="button" onClick={() => openEdit(problem)}>
                         Edit
                       </button>
                       {problem.status === "ACTIVE" && (
@@ -515,21 +984,137 @@ function Problems({ problems, domains, token, onRefresh }) {
         </div>
       </Panel>
       {form && (
-        <form className="admin-panel glass-card" onSubmit={save}>
-          <div className="admin-panel-title"><h2>{form.psId ? `Edit ${form.psId}` : "Add problem"}</h2></div>
-          <div className="admin-form-grid">
-            <label>Domain
-              <select value={form.domainId} onChange={(e) => setForm({ ...form, domainId: e.target.value })}>
-                {domains.map((item) => <option key={item.domainId} value={item.domainId}>{item.domainId} - {item.domainName}</option>)}
-              </select>
-            </label>
-            <label>Title<input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required /></label>
-            <label>Description<textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} required /></label>
-            <label>What to build<textarea value={form.whatToBuild} onChange={(e) => setForm({ ...form, whatToBuild: e.target.value })} required /></label>
-          </div>
-          <button className="btn btn-brand" type="submit">Save problem</button>
-          <button className="btn btn-outline-glass ms-2" type="button" onClick={() => setForm(null)}>Cancel</button>
-        </form>
+        <ModalOverlay
+          title={
+            <div className="d-flex align-items-center gap-2">
+              <span>{form.psId ? `Edit Problem: ${form.psId}` : "Add New Problem"}</span>
+              {form.psId && (
+                <span className={`badge ${form.status === "ACTIVE" ? "bg-success" : "bg-secondary"}`} style={{ fontSize: "0.75rem" }}>
+                  {form.status || "ACTIVE"}
+                </span>
+              )}
+            </div>
+          }
+          onClose={() => { if (!saving) { setForm(null); setModalError(""); } }}
+        >
+          <form onSubmit={save}>
+            <div className="admin-form-section">
+              <div className="admin-form-section-header">
+                <h3 className="admin-form-section-title">
+                  <i className="bi bi-file-earmark-text-fill"></i> Problem Information
+                </h3>
+              </div>
+              <div className="admin-form-grid">
+                {form.psId && (
+                  <div className="admin-form-group">
+                    <label className="admin-form-label">
+                      PSID <span className="admin-form-label-badge">(Read-only)</span>
+                    </label>
+                    <input
+                      type="text"
+                      className="admin-input-readonly"
+                      value={form.psId}
+                      readOnly
+                      tabIndex={-1}
+                    />
+                  </div>
+                )}
+                <div className="admin-form-group">
+                  <label className="admin-form-label">Domain *</label>
+                  <select
+                    value={form.domainId || "AGR"}
+                    onChange={(e) => setForm({ ...form, domainId: e.target.value })}
+                  >
+                    {domains.map((item) => (
+                      <option key={item.domainId} value={item.domainId}>
+                        {item.domainId} - {item.domainName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="admin-form-group">
+                  <label className="admin-form-label">Status *</label>
+                  <select
+                    value={form.status || "ACTIVE"}
+                    onChange={(e) => setForm({ ...form, status: e.target.value })}
+                  >
+                    <option value="ACTIVE">ACTIVE</option>
+                    <option value="DISABLED">DISABLED</option>
+                  </select>
+                </div>
+                <div className="admin-form-group admin-field-full">
+                  <label className="admin-form-label">Title *</label>
+                  <input
+                    type="text"
+                    value={form.title || ""}
+                    onChange={(e) => setForm({ ...form, title: e.target.value })}
+                    placeholder="Problem statement title"
+                    required
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="admin-form-section">
+              <div className="admin-form-section-header">
+                <h3 className="admin-form-section-title">
+                  <i className="bi bi-card-text"></i> Detailed Specifications
+                </h3>
+              </div>
+              <div className="d-flex flex-column gap-3">
+                <div className="admin-form-group">
+                  <label className="admin-form-label">Description *</label>
+                  <textarea
+                    className="admin-textarea-large"
+                    rows={4}
+                    value={form.description || ""}
+                    onChange={(e) => setForm({ ...form, description: e.target.value })}
+                    placeholder="Full problem description and context..."
+                    required
+                  />
+                </div>
+                <div className="admin-form-group">
+                  <label className="admin-form-label">What To Build *</label>
+                  <textarea
+                    className="admin-textarea-large"
+                    rows={4}
+                    value={form.whatToBuild || ""}
+                    onChange={(e) => setForm({ ...form, whatToBuild: e.target.value })}
+                    placeholder="Key deliverables and features expected..."
+                    required
+                  />
+                </div>
+              </div>
+            </div>
+
+            {modalError && (
+              <div className="participant-alert mt-3" role="alert">
+                <i className="bi bi-exclamation-triangle-fill me-2"></i>
+                {modalError}
+              </div>
+            )}
+            <div className="admin-modal-actions">
+              <button
+                className="btn btn-outline-glass"
+                type="button"
+                disabled={saving}
+                onClick={() => { setForm(null); setModalError(""); }}
+              >
+                Cancel
+              </button>
+              <button className="btn btn-brand" type="submit" disabled={saving}>
+                {saving ? (
+                  <>
+                    <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                    Saving...
+                  </>
+                ) : (
+                  "Save Problem"
+                )}
+              </button>
+            </div>
+          </form>
+        </ModalOverlay>
       )}
     </div>
   );
@@ -538,12 +1123,27 @@ function Problems({ problems, domains, token, onRefresh }) {
 function Domains({ domains, token, onRefresh }) {
   const [form, setForm] = useState(null);
   const [message, setMessage] = useState("");
+  const [modalError, setModalError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const openEdit = (domain) => {
+    setModalError("");
+    setForm({ domainId: domain.domainId, domainName: domain.domainName, maximumTeams: domain.maximumTeams, status: domain.status });
+  };
 
   const save = async (event) => {
     event.preventDefault();
+    setSaving(true);
+    setModalError("");
     const response = await apiAdminUpdateDomain(token, form);
-    setMessage(response.success ? "Domain saved successfully." : (response.error || "Failed to save domain."));
-    if (response.success) { setForm(null); onRefresh(); }
+    setSaving(false);
+    if (response.success) {
+      setMessage("Domain saved successfully.");
+      setForm(null);
+      await onRefresh();
+    } else {
+      setModalError(response.error || "Failed to save domain.");
+    }
   };
 
   return (
@@ -572,9 +1172,9 @@ function Domains({ domains, token, onRefresh }) {
                   <td>{domain.registeredTeams}</td>
                   <td>{domain.lockedTeams}</td>
                   <td>{domain.remainingCapacity}</td>
-                  <td>{domain.status}</td>
+                  <td><span className={`badge ${domain.status === "ACTIVE" ? "bg-success" : "bg-secondary"}`}>{domain.status}</span></td>
                   <td>
-                    <button className="btn btn-outline-glass" type="button" onClick={() => setForm({ domainId: domain.domainId, domainName: domain.domainName, maximumTeams: domain.maximumTeams, status: domain.status })}>
+                    <button className="btn btn-outline-glass" type="button" onClick={() => openEdit(domain)}>
                       Edit
                     </button>
                   </td>
@@ -583,23 +1183,106 @@ function Domains({ domains, token, onRefresh }) {
             </tbody>
           </table>
         </div>
-        {message && <p className="participant-muted" role="status">{message}</p>}
+        {message && <p className="participant-muted mt-3" role="status" style={{ color: message.includes("success") ? "#4ade80" : "#f87171" }}>{message}</p>}
       </Panel>
       {form && (
-        <form className="admin-panel glass-card" onSubmit={save}>
-          <div className="admin-form-grid">
-            <label>Domain name<input value={form.domainName} onChange={(e) => setForm({ ...form, domainName: e.target.value })} required /></label>
-            <label>Maximum teams<input type="number" min="0" value={form.maximumTeams} onChange={(e) => setForm({ ...form, maximumTeams: e.target.value })} required /></label>
-            <label>Status
-              <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
-                <option value="ACTIVE">ACTIVE</option>
-                <option value="DISABLED">DISABLED</option>
-              </select>
-            </label>
-          </div>
-          <button className="btn btn-brand" type="submit">Save domain</button>
-          <button className="btn btn-outline-glass ms-2" type="button" onClick={() => setForm(null)}>Cancel</button>
-        </form>
+        <ModalOverlay
+          title={
+            <div className="d-flex align-items-center gap-2">
+              <span>Edit Domain: {form.domainId}</span>
+              <span className={`badge ${form.status === "ACTIVE" ? "bg-success" : "bg-secondary"}`} style={{ fontSize: "0.75rem" }}>
+                {form.status || "ACTIVE"}
+              </span>
+            </div>
+          }
+          onClose={() => { if (!saving) { setForm(null); setModalError(""); } }}
+        >
+          <form onSubmit={save}>
+            <div className="admin-form-section">
+              <div className="admin-form-section-header">
+                <h3 className="admin-form-section-title">
+                  <i className="bi bi-grid-fill"></i> Domain Information
+                </h3>
+              </div>
+              <div className="admin-form-grid">
+                <div className="admin-form-group">
+                  <label className="admin-form-label">
+                    Domain ID <span className="admin-form-label-badge">(Read-only)</span>
+                  </label>
+                  <input
+                    type="text"
+                    className="admin-input-readonly"
+                    value={form.domainId}
+                    readOnly
+                    tabIndex={-1}
+                  />
+                </div>
+                <div className="admin-form-group">
+                  <label className="admin-form-label">Status *</label>
+                  <select
+                    value={form.status || "ACTIVE"}
+                    onChange={(e) => setForm({ ...form, status: e.target.value })}
+                  >
+                    <option value="ACTIVE">ACTIVE</option>
+                    <option value="DISABLED">DISABLED</option>
+                  </select>
+                </div>
+                <div className="admin-form-group admin-field-full">
+                  <label className="admin-form-label">Domain Name *</label>
+                  <input
+                    type="text"
+                    value={form.domainName || ""}
+                    onChange={(e) => setForm({ ...form, domainName: e.target.value })}
+                    placeholder="Domain display name"
+                    required
+                    autoFocus
+                  />
+                </div>
+                <div className="admin-form-group admin-field-full">
+                  <label className="admin-form-label">Maximum Teams *</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={form.maximumTeams !== undefined ? form.maximumTeams : ""}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setForm({ ...form, maximumTeams: val === "" ? 0 : Math.max(0, parseInt(val, 10) || 0) });
+                    }}
+                    required
+                  />
+                </div>
+              </div>
+            </div>
+
+            {modalError && (
+              <div className="participant-alert mt-3" role="alert">
+                <i className="bi bi-exclamation-triangle-fill me-2"></i>
+                {modalError}
+              </div>
+            )}
+            <div className="admin-modal-actions">
+              <button
+                className="btn btn-outline-glass"
+                type="button"
+                disabled={saving}
+                onClick={() => { setForm(null); setModalError(""); }}
+              >
+                Cancel
+              </button>
+              <button className="btn btn-brand" type="submit" disabled={saving}>
+                {saving ? (
+                  <>
+                    <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                    Saving...
+                  </>
+                ) : (
+                  "Save Domain"
+                )}
+              </button>
+            </div>
+          </form>
+        </ModalOverlay>
       )}
     </div>
   );
@@ -613,7 +1296,6 @@ function Selections({ teams, selections = [], config, token, onRefresh }) {
 
   const resetAllowed = Boolean(config?.allowSelectionReset);
 
-  // Authoritative selection list from Selections sheet, falling back to team selections if needed.
   const displaySelections = selections.length > 0
     ? selections
     : teams.filter((t) => t.selection?.psId).map((t) => ({
@@ -775,26 +1457,39 @@ function Selections({ teams, selections = [], config, token, onRefresh }) {
 }
 
 function Release({ config, token, onRefresh }) {
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+
   const run = async (request, prompt) => {
     if (!window.confirm(prompt)) return;
-    await request(token);
-    onRefresh();
+    setBusy(true);
+    setMessage("");
+    const res = await request(token);
+    setBusy(false);
+    if (res?.success) {
+      setMessage("Release state updated successfully.");
+      onRefresh();
+    } else {
+      setMessage(res?.error || "Action failed.");
+    }
   };
+
   return (
     <Panel title="Release control">
       <div className="admin-release-grid">
         <div><span>Problem release (IST)</span><strong>{dateLabel(config.problemReleaseAt)}</strong></div>
         <div><span>Problem close (IST)</span><strong>{dateLabel(config.problemCloseAt)}</strong></div>
       </div>
-      <p className="admin-state">Current State: <strong>{config.selectionState}</strong></p>
-      <div className="d-flex gap-2 flex-wrap">
-        <button className="btn btn-brand" type="button" onClick={() => run(apiAdminReleaseNow, "Release problem selection now?")}>
+      <p className="admin-state mt-3">Current State: <strong>{config.selectionState}</strong></p>
+      {message && <p className="participant-muted" role="status" style={{ color: message.toLowerCase().includes("failed") ? "#f87171" : "#4ade80" }}>{message}</p>}
+      <div className="d-flex gap-2 flex-wrap mt-3">
+        <button className="btn btn-brand" type="button" disabled={busy} onClick={() => run(apiAdminReleaseNow, "Release problem selection now?")}>
           Release now
         </button>
-        <button className="btn btn-outline-glass" type="button" onClick={() => run(apiAdminOpenSelection, "Open problem selection?")}>
+        <button className="btn btn-outline-glass" type="button" disabled={busy} onClick={() => run(apiAdminOpenSelection, "Open problem selection?")}>
           Open Selection
         </button>
-        <button className="btn btn-outline-glass" type="button" onClick={() => run(apiAdminCloseSelection, "Close problem selection?")}>
+        <button className="btn btn-outline-glass" type="button" disabled={busy} onClick={() => run(apiAdminCloseSelection, "Close problem selection?")}>
           Close selection
         </button>
       </div>
@@ -803,10 +1498,12 @@ function Release({ config, token, onRefresh }) {
 }
 
 function Configuration({ config, token, onRefresh }) {
-  const [release, setRelease] = useState(dateInput(config.problemReleaseAt));
-  const [close, setClose] = useState(dateInput(config.problemCloseAt));
+  const [release, setRelease] = useState(() => dateInput(config.problemReleaseAt));
+  const [close, setClose] = useState(() => dateInput(config.problemCloseAt));
   const [allowReset, setAllowReset] = useState(Boolean(config.allowSelectionReset));
+  const [regEnabled, setRegEnabled] = useState(() => String(config.registrationEnabled || "").toUpperCase() !== "FALSE");
   const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
 
   const saveTiming = async (event) => {
     event.preventDefault();
@@ -823,12 +1520,32 @@ function Configuration({ config, token, onRefresh }) {
       return;
     }
 
+    setBusy(true);
     const result = await apiAdminUpdateConfiguration(token, {
       problemReleaseAt: releaseIso,
       problemCloseAt: closeIso
     });
+    setBusy(false);
     setMessage(result.success ? "Configuration saved." : (result.error || "Failed to save configuration."));
     if (result.success) onRefresh();
+  };
+
+  const toggleReg = async () => {
+    const newVal = !regEnabled;
+    const confirmMsg = newVal
+      ? "Enable registration? Teams will be able to register."
+      : "Disable registration? This will stop new team registrations.";
+    if (!window.confirm(confirmMsg)) return;
+    setBusy(true);
+    const result = await apiAdminUpdateConfiguration(token, { registrationEnabled: newVal ? "TRUE" : "FALSE" });
+    setBusy(false);
+    if (result.success) {
+      setRegEnabled(newVal);
+      setMessage(`Registration ${newVal ? "ENABLED" : "DISABLED"}.`);
+      onRefresh();
+    } else {
+      setMessage(result.error || "Failed to update registration status.");
+    }
   };
 
   const toggleReset = async () => {
@@ -837,7 +1554,9 @@ function Configuration({ config, token, onRefresh }) {
       ? "Enable ALLOW_SELECTION_RESET? This permits admins to remove selections."
       : "Disable ALLOW_SELECTION_RESET? This prevents all selection resets.";
     if (!window.confirm(confirmMsg)) return;
+    setBusy(true);
     const result = await apiAdminSetAllowReset(token, { allowSelectionReset: newFlag ? "TRUE" : "FALSE" });
+    setBusy(false);
     if (result.success) {
       setAllowReset(newFlag);
       setMessage(`ALLOW_SELECTION_RESET set to ${newFlag ? "TRUE" : "FALSE"}.`);
@@ -847,28 +1566,48 @@ function Configuration({ config, token, onRefresh }) {
     }
   };
 
+  const msgColor = message.toLowerCase().includes("error") || message.toLowerCase().includes("must") || message.toLowerCase().includes("failed") || message.toLowerCase().includes("disable") ? "#f87171" : "#4ade80";
+
   return (
     <div className="admin-content">
       <form className="admin-panel glass-card" onSubmit={saveTiming}>
         <div className="admin-panel-title">
           <h2>Timing configuration (Asia/Kolkata - IST)</h2>
-          <span>State: {config.selectionState}</span>
+          <span>State: <strong>{config.selectionState}</strong></span>
         </div>
-        <label>Registration enabled
-          <input value={String(config.registrationEnabled)} readOnly />
-        </label>
-        <label>Registration deadline
-          <input value={String(config.registrationDeadline || "N/A")} readOnly />
-        </label>
-        <label>Problem release (IST)
-          <input type="datetime-local" value={release} onChange={(e) => setRelease(e.target.value)} required />
-        </label>
-        <label>Problem close (IST)
-          <input type="datetime-local" value={close} onChange={(e) => setClose(e.target.value)} required />
-        </label>
-        {message && <p className="participant-muted" role="status" style={{ color: message.toLowerCase().includes("error") || message.toLowerCase().includes("must") || message.toLowerCase().includes("failed") ? "#f87171" : "#4ade80" }}>{message}</p>}
-        <button className="btn btn-brand" type="submit">Save timing</button>
+        <div className="admin-form-grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
+          <label>Problem release (IST)
+            <input type="datetime-local" value={release} onChange={(e) => setRelease(e.target.value)} required />
+          </label>
+          <label>Problem close (IST)
+            <input type="datetime-local" value={close} onChange={(e) => setClose(e.target.value)} required />
+          </label>
+        </div>
+        {message && <p className="participant-muted" role="status" style={{ color: msgColor }}>{message}</p>}
+        <button className="btn btn-brand mt-2" type="submit" disabled={busy}>Save timing</button>
       </form>
+
+      <Panel title="Registration control">
+        <div className="d-flex align-items-center gap-3 flex-wrap">
+          <div>
+            <p className="mb-1"><strong>REGISTRATION_ENABLED</strong></p>
+            <p className="participant-muted mb-2" style={{ fontSize: "0.85rem" }}>
+              Controls whether new teams can register. Toggle to open or close registration.
+            </p>
+            <span className={`badge me-3 ${regEnabled ? "bg-success" : "bg-danger"}`}>
+              Current: {regEnabled ? "TRUE" : "FALSE"}
+            </span>
+            <button
+              className={`btn ${regEnabled ? "btn-outline-glass" : "btn-brand"}`}
+              type="button"
+              disabled={busy}
+              onClick={toggleReg}
+            >
+              {regEnabled ? "Disable registration" : "Enable registration"}
+            </button>
+          </div>
+        </div>
+      </Panel>
 
       <Panel title="Safety controls">
         <div className="d-flex align-items-center gap-3 flex-wrap">
@@ -884,6 +1623,7 @@ function Configuration({ config, token, onRefresh }) {
             <button
               className={`btn ${allowReset ? "btn-outline-glass" : "btn-brand"}`}
               type="button"
+              disabled={busy}
               onClick={toggleReset}
             >
               {allowReset ? "Disable (set FALSE)" : "Enable (set TRUE)"}

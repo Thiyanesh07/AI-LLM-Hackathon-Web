@@ -318,3 +318,45 @@ function apiAdminGetAllData(idToken) {
     return getAdminAllData();
   });
 }
+
+
+function apiSubmitFeedback(idToken, data) {
+  return apiCall_(function() {
+    return submitFeedback(idToken, data);
+  });
+}
+
+
+function apiGetMyFeedbackStatus(idToken) {
+  return apiCall_(function() {
+    return getMyFeedbackStatus(idToken);
+  });
+}
+
+
+function apiAdminGetFeedback(idToken) {
+  return apiCall_(function() {
+    return getAdminFeedback(idToken);
+  });
+}
+
+
+function apiSubmitFinalSubmission(idToken, data) {
+  return apiCall_(function() {
+    return submitFinalSubmission(idToken, data);
+  });
+}
+
+
+function apiGetMyFinalSubmissionStatus(idToken) {
+  return apiCall_(function() {
+    return getMyFinalSubmissionStatus(idToken);
+  });
+}
+
+
+function apiAdminGetFinalSubmissions(idToken) {
+  return apiCall_(function() {
+    return getAdminFinalSubmissions(idToken);
+  });
+}

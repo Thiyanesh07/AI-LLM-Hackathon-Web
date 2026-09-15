@@ -291,21 +291,29 @@ function adminUpdateTeam(data) {
   }
 
   const existingTeam = getSheetRecords(SHEET_NAMES.TEAMS).find(function(team) {
-    return String(team.TeamID).trim() === teamId;
+    return String(team.TeamID).trim().toUpperCase() === teamId.toUpperCase();
   });
 
   if (!existingTeam) {
     throwApiError("The requested team was not found.", "TEAM_NOT_FOUND");
   }
 
+  const existingMembers = [1, 2, 3, 4].map(function(i) {
+    return {
+      name: String(existingTeam["Member" + i + "Name"] || "").trim(),
+      registerNumber: normalizeRegisterNumber(existingTeam["Member" + i + "RegisterNumber"]),
+      department: String(existingTeam["Member" + i + "Department"] || "").trim()
+    };
+  }).filter(function(m) { return m.name || m.registerNumber || m.department; });
+
   const updated = {
-    teamName: data.teamName,
-    leaderName: data.leaderName,
-    leaderEmail: data.leaderEmail,
-    leaderMobile: data.leaderMobile,
-    leaderRegisterNumber: data.leaderRegisterNumber,
-    leaderDepartment: data.leaderDepartment,
-    members: data.members || [],
+    teamName: data.teamName === undefined ? existingTeam.TeamName : data.teamName,
+    leaderName: data.leaderName === undefined ? existingTeam.LeaderName : data.leaderName,
+    leaderEmail: data.leaderEmail === undefined ? existingTeam.LeaderEmail : data.leaderEmail,
+    leaderMobile: data.leaderMobile === undefined ? (existingTeam.LeaderMobile || existingTeam.LeaderMobileNumber) : data.leaderMobile,
+    leaderRegisterNumber: data.leaderRegisterNumber === undefined ? existingTeam.LeaderRegisterNumber : data.leaderRegisterNumber,
+    leaderDepartment: data.leaderDepartment === undefined ? existingTeam.LeaderDepartment : data.leaderDepartment,
+    members: data.members !== undefined ? data.members : existingMembers,
     domainId: String(data.domainId || existingTeam.DomainID || "").trim().toUpperCase()
   };
 
@@ -356,7 +364,7 @@ function adminUpdateTeam(data) {
     SpreadsheetApp.flush();
 
     return getAdminTeam(getSheetRecords(SHEET_NAMES.TEAMS).find(function(team) {
-      return String(team.TeamID).trim() === teamId;
+      return String(team.TeamID).trim().toUpperCase() === teamId.toUpperCase();
     }), getSheetRecords(SHEET_NAMES.SELECTIONS));
   } finally {
     lock.releaseLock();
@@ -377,6 +385,7 @@ function setTeamStatus(teamId, status) {
 
     const headerMap = getSheetHeaderMap(SHEET_NAMES.TEAMS);
     getSheet(SHEET_NAMES.TEAMS).getRange(rowNumber, headerMap.Status).setValue(status);
+    SpreadsheetApp.flush();
 
     return { success: true, data: { teamId: String(teamId).trim(), status: status } };
   } finally {
@@ -501,6 +510,7 @@ function setProblemStatus(psId, status) {
 
     const headerMap = getSheetHeaderMap(SHEET_NAMES.PROBLEMS);
     getSheet(SHEET_NAMES.PROBLEMS).getRange(rowNumber, headerMap.Status).setValue(status);
+    SpreadsheetApp.flush();
 
     return getAdminProblems().find(function(problem) {
       return String(problem.PSID).trim().toUpperCase() === String(psId).trim().toUpperCase();
@@ -519,7 +529,7 @@ function adminUpdateProblem(data) {
     throwApiError("The requested problem was not found.", "PROBLEM_NOT_FOUND");
   }
 
-  const domainId = String(data.domainId || existing.DomainID).trim().toUpperCase();
+  const domainId = String(data.domainId === undefined || data.domainId === null ? existing.DomainID : data.domainId).trim().toUpperCase();
   const domain = getDomainById(domainId);
 
   if (!domain) {
@@ -575,6 +585,10 @@ function adminUpdateProblem(data) {
     }
 
     const rowNumber = findSheetRowNumber(SHEET_NAMES.PROBLEMS, "PSID", psId);
+    if (!rowNumber) {
+      throwApiError("The requested problem was not found.", "PROBLEM_NOT_FOUND");
+    }
+
     const sheet = getSheet(SHEET_NAMES.PROBLEMS);
     const headerMap = getSheetHeaderMap(SHEET_NAMES.PROBLEMS);
     const values = {
@@ -586,8 +600,12 @@ function adminUpdateProblem(data) {
     };
 
     Object.keys(values).forEach(function(header) {
-      sheet.getRange(rowNumber, headerMap[header]).setValue(values[header]);
+      const col = getColForHeader(headerMap, header);
+      if (col) {
+        sheet.getRange(rowNumber, col).setValue(values[header]);
+      }
     });
+    SpreadsheetApp.flush();
 
     return getAdminProblems().find(function(problem) {
       return String(problem.PSID).trim().toUpperCase() === psId;
@@ -721,12 +739,30 @@ function adminUpdateDomain(data) {
     }
 
     const rowNumber = findSheetRowNumber(SHEET_NAMES.DOMAINS, "DomainID", domainId);
+    if (!rowNumber) {
+      throwApiError("The requested domain row was not found in the sheet.", "DOMAIN_NOT_FOUND");
+    }
     const headerMap = getSheetHeaderMap(SHEET_NAMES.DOMAINS);
     const sheet = getSheet(SHEET_NAMES.DOMAINS);
 
-    sheet.getRange(rowNumber, headerMap.DomainName).setValue(domainName);
-    sheet.getRange(rowNumber, headerMap.MaximumTeams).setValue(maximumTeams);
-    sheet.getRange(rowNumber, headerMap.Status).setValue(status);
+    const domainNameCol = getColForHeader(headerMap, "DomainName");
+    const maximumTeamsCol = getColForHeader(headerMap, "MaximumTeams");
+    const statusCol = getColForHeader(headerMap, "Status");
+
+    if (!domainNameCol || !maximumTeamsCol || !statusCol) {
+      throwApiError(
+        "Domain sheet is missing required columns (DomainName, MaximumTeams, Status). Headers: " +
+          Object.keys(headerMap).join(", "),
+        "DOMAIN_HEADER_MISSING"
+      );
+    }
+
+    sheet.getRange(rowNumber, domainNameCol).setValue(domainName);
+    sheet.getRange(rowNumber, maximumTeamsCol).setValue(maximumTeams);
+    sheet.getRange(rowNumber, statusCol).setValue(status);
+    SpreadsheetApp.flush();
+
+    Logger.log("ADMIN_UPDATE_DOMAIN_SUCCESS: " + domainId + " -> name=" + domainName + " max=" + maximumTeams + " status=" + status);
 
     return getAdminDomains().find(function(domain) {
       return String(domain.DomainID).trim().toUpperCase() === domainId;
@@ -836,6 +872,8 @@ function getAdminDashboardStats() {
   const problems = getSheetRecords(SHEET_NAMES.PROBLEMS);
   const selections = getSheetRecords(SHEET_NAMES.SELECTIONS);
   const domains = getSheetRecords(SHEET_NAMES.DOMAINS);
+  const feedbackRecords = getSheetRecords(SHEET_NAMES.FEEDBACK);
+  const finalSubmissionsRecords = getSheetRecords(SHEET_NAMES.FINAL_SUBMISSIONS);
   const teamStats = getTeamStatistics(teams, selections);
   const problemStats = getProblemStatistics(problems, selections, domains);
 
@@ -854,6 +892,10 @@ function getAdminDashboardStats() {
     totalActiveDomains: domains.filter(function(domain) {
       return String(domain.Status).trim().toUpperCase() === DOMAIN_STATUS.ACTIVE;
     }).length,
+    feedbackSubmitted: feedbackRecords.length,
+    feedbackPending: Math.max(teamStats.activeTeams - feedbackRecords.length, 0),
+    finalSubmissionsCount: finalSubmissionsRecords.length,
+    finalSubmissionsPending: Math.max(teamStats.activeTeams - finalSubmissionsRecords.length, 0),
     domains: getDomainStatistics(domains, selections, teams),
     selectionStatus: String(getConfigValue("SelectionStatus") || "").trim().toUpperCase(),
     hackathonStatus: String(getConfigValue("HackathonStatus") || "").trim().toUpperCase(),
